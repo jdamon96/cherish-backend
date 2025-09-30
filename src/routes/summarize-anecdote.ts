@@ -4,6 +4,9 @@ import OpenAI from "openai";
 import { Database, PersonFact, PersonFactUpdate } from "../config/supabase";
 import { validateEnvironment } from "../types/env";
 
+// Core prompt template for generating anecdote summaries
+const ANECDOTE_SUMMARY_PROMPT = `You are a helpful assistant that creates concise, descriptive titles for personal anecdotes. These summaries will be used as "pill" or "badge" UI elements in an app, representing anecdotes the user has shared about someone they want to find gifts for. The summaries should serve as quick, contextual references to the anecdote from the user's perspective, and will be displayed back to the user. For example, if the user writes "She is my mom" about a person, a useful summary would be "Your mom". Your task is to summarize the given text into a short, meaningful title (ideally under 5 words) that captures the essence of what the person likes, does, is interested in, or their relationship to the user. Examples: 'Loves to garden', 'Enjoys cooking', 'Passionate about music', 'Loves hiking', 'Your mom'.`;
+
 export function summarizeAnecdoteRoutes(supabase: SupabaseClient<Database>) {
   const router = Router();
 
@@ -59,8 +62,7 @@ export function summarizeAnecdoteRoutes(supabase: SupabaseClient<Database>) {
         messages: [
           {
             role: "system",
-            content:
-              "You are a helpful assistant that creates concise, descriptive titles for personal anecdotes. Your task is to summarize the given text into a short, meaningful title that captures the essence of what the person likes, does, or is interested in. Keep titles under 5 words when possible. Examples: 'Loves to garden', 'Enjoys cooking', 'Passionate about music', 'Loves hiking'.",
+            content: ANECDOTE_SUMMARY_PROMPT,
           },
           {
             role: "user",
