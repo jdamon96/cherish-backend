@@ -5,7 +5,7 @@ import rateLimit from "express-rate-limit";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { validateEnvironment } from "./types/env";
 import { createSupabaseClient, Database } from "./config/supabase";
-import { summarizeAnecdoteRoutes } from "./routes/summarize-anecdote";
+import { insertPersonFactRoutes } from "./routes/insert-person-fact";
 import { parseGiftRoutes } from "./routes/parse-gift";
 import { giftRecsRoutes } from "./routes/gift-recs";
 
@@ -54,7 +54,7 @@ app.get("/health", (req, res) => {
 });
 
 // API routes
-app.use("/api/summarize-anecdote", summarizeAnecdoteRoutes(supabase));
+app.use("/api/insert-person-fact", insertPersonFactRoutes(supabase));
 app.use("/api/parse-gift-image", parseGiftRoutes(supabase));
 app.use("/api/get-gift-recs", giftRecsRoutes(supabase));
 

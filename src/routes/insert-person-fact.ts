@@ -1,13 +1,13 @@
 import { Router } from "express";
 import { SupabaseClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
-import { Database, PersonFact, PersonFactUpdate } from "../config/supabase";
+import { Database, PersonFactInsert } from "../config/supabase";
 import { validateEnvironment } from "../types/env";
 
 // Core prompt template for generating anecdote summaries
 const ANECDOTE_SUMMARY_PROMPT = `You are a helpful assistant that creates concise, descriptive titles for personal anecdotes. These summaries will be used as "pill" or "badge" UI elements in an app, representing anecdotes the user has shared about someone they want to find gifts for. The summaries should serve as quick, contextual references to the anecdote from the user's perspective, and will be displayed back to the user. For example, if the user writes "She is my mom" about a person, a useful summary would be "Your mom". Your task is to summarize the given text into a short, meaningful title (ideally under 5 words) that captures the essence of what the person likes, does, is interested in, or their relationship to the user. Examples: 'Loves to garden', 'Enjoys cooking', 'Passionate about music', 'Loves hiking', 'Your mom'.`;
 
-export function summarizeAnecdoteRoutes(supabase: SupabaseClient<Database>) {
+export function insertPersonFactRoutes(supabase: SupabaseClient<Database>) {
   const router = Router();
 
   router.post("/", async (req, res) => {
@@ -17,12 +17,12 @@ export function summarizeAnecdoteRoutes(supabase: SupabaseClient<Database>) {
       apiKey: env.OPENAI_API_KEY,
     });
     try {
-      const { person_fact_id, user_id } = req.body;
+      const { content, user_id, person_id } = req.body;
 
-      if (!person_fact_id) {
+      if (!content) {
         return res.status(400).json({
           error: "Missing required field",
-          message: "person_fact_id is required",
+          message: "content is required",
         });
       }
 
@@ -33,26 +33,10 @@ export function summarizeAnecdoteRoutes(supabase: SupabaseClient<Database>) {
         });
       }
 
-      // Fetch the person fact from Supabase (with user_id validation for security)
-      const { data: personFact, error: fetchError } = await supabase
-        .from("person_facts")
-        .select("*")
-        .eq("id", person_fact_id)
-        .eq("user_id", user_id)
-        .single();
-
-      if (fetchError) {
-        console.error("Error fetching person fact:", fetchError);
-        return res.status(404).json({
-          error: "Person fact not found",
-          message: "Could not find person fact with the provided ID",
-        });
-      }
-
-      if (!personFact.content) {
+      if (!person_id) {
         return res.status(400).json({
-          error: "Invalid data",
-          message: "Person fact has no content to summarize",
+          error: "Missing required field",
+          message: "person_id is required",
         });
       }
 
@@ -66,48 +50,57 @@ export function summarizeAnecdoteRoutes(supabase: SupabaseClient<Database>) {
           },
           {
             role: "user",
-            content: `Create a concise title for this personal anecdote: "${personFact.content}"`,
+            content: `Create a concise title for this personal anecdote: "${content}"`,
           },
         ],
         max_tokens: 50,
         temperature: 0.3,
       });
 
-      const summaryTitle = completion.choices[0]?.message?.content?.trim();
+      const rawSummaryTitle = completion.choices[0]?.message?.content?.trim();
 
-      if (!summaryTitle) {
+      if (!rawSummaryTitle) {
         throw new Error("Failed to generate summary title");
       }
 
-      // Update the person fact with the summary title
-      const updateData: PersonFactUpdate = {
+      // Remove quotes from the beginning and end of the summary title
+      const summaryTitle = rawSummaryTitle.replace(/^["']|["']$/g, "").trim();
+
+      // Insert the new person fact with the generated summary
+      const personFactData: PersonFactInsert = {
+        user_id,
+        person_id,
+        content,
         summary_title: summaryTitle,
-        updated_at: new Date().toISOString(),
       };
 
-      const { error: updateError } = await supabase
+      const { data: newPersonFact, error: insertError } = await supabase
         .from("person_facts")
-        .update(updateData)
-        .eq("id", person_fact_id);
+        .insert(personFactData)
+        .select()
+        .single();
 
-      if (updateError) {
-        console.error("Error updating person fact:", updateError);
+      if (insertError) {
+        console.error("Error inserting person fact:", insertError);
         return res.status(500).json({
-          error: "Database update failed",
-          message: "Could not save the summary title",
+          error: "Database insert failed",
+          message: "Could not save the person fact",
         });
       }
 
       return res.json({
         success: true,
         data: {
-          id: person_fact_id,
-          original_content: personFact.content,
-          summary_title: summaryTitle,
+          id: newPersonFact.id,
+          content: newPersonFact.content,
+          summary_title: newPersonFact.summary_title,
+          user_id: newPersonFact.user_id,
+          person_id: newPersonFact.person_id,
+          created_at: newPersonFact.created_at,
         },
       });
     } catch (error) {
-      console.error("Error in summarize anecdote:", error);
+      console.error("Error in insert person fact:", error);
 
       if (error instanceof Error && error.message.includes("API key")) {
         return res.status(500).json({
@@ -118,7 +111,7 @@ export function summarizeAnecdoteRoutes(supabase: SupabaseClient<Database>) {
 
       return res.status(500).json({
         error: "Internal Server Error",
-        message: "Failed to summarize anecdote",
+        message: "Failed to insert person fact",
       });
     }
   });
