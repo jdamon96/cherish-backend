@@ -242,6 +242,7 @@ Generate all ${count} ideas in this format.`;
   /**
    * GET /api/general-gift-ideas
    * Fetch stored general gift ideas for a person + event
+   * Includes user feedback status for each idea
    */
   router.get("/", async (req, res) => {
     try {
@@ -263,10 +264,22 @@ Generate all ${count} ideas in this format.`;
 
       let query = supabase
         .from("general_gift_ideas")
-        .select("*")
+        .select(
+          `
+          *,
+          general_gift_idea_feedback!left (
+            id,
+            feedback_type,
+            feedback_text,
+            refinement_direction,
+            created_at
+          )
+        `
+        )
         .eq("user_id", user_id as string)
         .eq("person_id", person_id as string)
         .eq("event_id", event_id as string)
+        .eq("general_gift_idea_feedback.user_id", user_id as string)
         .order("created_at", { ascending: false });
 
       // Filter by dismissal status if requested
@@ -285,11 +298,27 @@ Generate all ${count} ideas in this format.`;
         });
       }
 
+      // Transform data to include feedback status
+      const ideasWithFeedback = ideas?.map((idea: any) => {
+        const feedbackArray = idea.general_gift_idea_feedback || [];
+        const feedback = feedbackArray[0] || null;
+
+        return {
+          ...idea,
+          feedback_type: feedback?.feedback_type || null,
+          feedback_text: feedback?.feedback_text || null,
+          refinement_direction: feedback?.refinement_direction || null,
+          feedback_given_at: feedback?.created_at || null,
+          // Remove the raw join data
+          general_gift_idea_feedback: undefined,
+        };
+      });
+
       return res.json({
         success: true,
         data: {
-          ideas: ideas || [],
-          count: ideas?.length || 0,
+          ideas: ideasWithFeedback || [],
+          count: ideasWithFeedback?.length || 0,
         },
       });
     } catch (error) {
@@ -603,6 +632,292 @@ Generate all ${count} NEW ideas in this format.`;
         success: false,
         error: "Internal server error",
         message: "Failed to dismiss gift idea",
+      });
+    }
+  });
+
+  /**
+   * POST /api/general-gift-ideas/:id/feedback
+   * Provide feedback on a general gift idea (not relevant, refine, like, etc.)
+   */
+  router.post("/:id/feedback", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { user_id, feedback_type, feedback_text, refinement_direction } =
+        req.body;
+
+      // Validate required parameters
+      if (!user_id || !feedback_type) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing required parameters",
+          message: "user_id and feedback_type are required",
+        });
+      }
+
+      // Validate feedback_type
+      const validTypes = ["dismissed", "not_relevant", "refine", "like"];
+      if (!validTypes.includes(feedback_type)) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid feedback_type",
+          message: `feedback_type must be one of: ${validTypes.join(", ")}`,
+        });
+      }
+
+      // Check if the general gift idea exists and belongs to the user
+      const { data: giftIdea, error: giftError } = await supabase
+        .from("general_gift_ideas")
+        .select("*")
+        .eq("id", id)
+        .eq("user_id", user_id)
+        .single();
+
+      if (giftError || !giftIdea) {
+        return res.status(404).json({
+          success: false,
+          error: "Gift idea not found",
+          message: "The specified gift idea does not exist or access denied",
+        });
+      }
+
+      // Upsert feedback (update if exists, insert if new)
+      const { data: feedback, error: feedbackError } = await supabase
+        .from("general_gift_idea_feedback")
+        .upsert(
+          {
+            user_id,
+            general_gift_idea_id: id,
+            feedback_type,
+            feedback_text: feedback_text || null,
+            refinement_direction: refinement_direction || null,
+            updated_at: new Date().toISOString(),
+          },
+          {
+            onConflict: "user_id,general_gift_idea_id",
+          }
+        )
+        .select()
+        .single();
+
+      if (feedbackError) {
+        console.error("Error saving feedback:", feedbackError);
+        return res.status(500).json({
+          success: false,
+          error: "Database error",
+          message: "Failed to save feedback",
+        });
+      }
+
+      // If feedback is dismissed/not_relevant, also update is_dismissed on the idea
+      if (feedback_type === "dismissed" || feedback_type === "not_relevant") {
+        await supabase
+          .from("general_gift_ideas")
+          .update({
+            is_dismissed: true,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", id)
+          .eq("user_id", user_id);
+      }
+
+      return res.json({
+        success: true,
+        data: {
+          feedback,
+          gift_idea: giftIdea,
+        },
+      });
+    } catch (error) {
+      console.error("Error providing feedback on general gift idea:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Internal server error",
+        message: "Failed to provide feedback",
+      });
+    }
+  });
+
+  /**
+   * POST /api/general-gift-ideas/:id/refine
+   * Generate refined versions of a general gift idea based on user feedback
+   */
+  router.post("/:id/refine", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { user_id, refinement_direction, count = 5 } = req.body;
+
+      // Validate required parameters
+      if (!user_id || !refinement_direction) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing required parameters",
+          message: "user_id and refinement_direction are required",
+        });
+      }
+
+      // Fetch the original gift idea
+      const { data: originalIdea, error: ideaError } = await supabase
+        .from("general_gift_ideas")
+        .select("*, people(*), events(*)")
+        .eq("id", id)
+        .eq("user_id", user_id)
+        .single();
+
+      if (ideaError || !originalIdea) {
+        return res.status(404).json({
+          success: false,
+          error: "Gift idea not found",
+          message: "The specified gift idea does not exist or access denied",
+        });
+      }
+
+      // Fetch person facts for context
+      const { data: personFacts } = await supabase
+        .from("person_facts")
+        .select("*")
+        .eq("person_id", originalIdea.person_id)
+        .eq("user_id", user_id);
+
+      const personContext = {
+        name: originalIdea.people.name,
+        facts:
+          personFacts?.map((fact) => ({
+            title: fact.summary_title,
+            content: fact.content,
+          })) || [],
+      };
+
+      const eventContext = {
+        name: originalIdea.events.name,
+        type: originalIdea.events.event_type,
+      };
+
+      // Generate refined ideas using OpenAI
+      const prompt = `You are a thoughtful gift recommendation assistant. The user has a gift idea but wants to refine it.
+
+Original Gift Idea: "${originalIdea.idea_text}"
+Refinement Request: "${refinement_direction}"
+
+Person: ${personContext.name}
+Event: ${eventContext.name} (${eventContext.type})
+
+Person Facts:
+${personContext.facts.map((f: any) => `- ${f.title}: ${f.content}`).join("\n")}
+
+Generate exactly ${count} refined gift idea categories that:
+1. Take the original idea and adjust it based on the refinement request
+2. Stay relevant to the person's interests and the event
+3. Each idea should be 2-6 words
+
+IMPORTANT: Return a JSON object with an "ideas" array containing exactly ${count} refined gift ideas.
+
+Expected format:
+{
+  "ideas": [
+    {
+      "idea_text": "affordable fitness tracker",
+      "reasoning": "More budget-friendly version of the original wireless workout headphones, still fitness-focused"
+    }
+  ]
+}
+
+Generate all ${count} refined ideas in this format.`;
+
+      console.log("[GeneralGiftIdeas] Refining idea with OpenAI...");
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content:
+              'You are a gift recommendation expert. Always respond with a JSON object containing an "ideas" array. Focus on refining ideas based on user feedback.',
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.7,
+      });
+
+      const content = response.choices[0]?.message?.content;
+      console.log("[GeneralGiftIdeas] OpenAI refinement response:", content);
+
+      if (!content) {
+        throw new Error("No response from OpenAI");
+      }
+
+      let ideas: GeneralGiftIdea[];
+      try {
+        const parsed = JSON.parse(content);
+        ideas = Array.isArray(parsed)
+          ? parsed
+          : parsed.ideas || parsed.gift_ideas || [];
+      } catch (parseError) {
+        console.error("[GeneralGiftIdeas] Error parsing response:", parseError);
+        throw new Error("Failed to parse refined ideas from AI response");
+      }
+
+      if (!ideas || ideas.length === 0) {
+        throw new Error("No refined ideas generated");
+      }
+
+      // Store refined ideas in database
+      const ideasToInsert = ideas.map((idea) => ({
+        user_id,
+        person_id: originalIdea.person_id,
+        event_id: originalIdea.event_id,
+        idea_text: idea.idea_text,
+        reasoning: `Refined from "${originalIdea.idea_text}": ${idea.reasoning}`,
+        is_dismissed: false,
+      }));
+
+      const { data: insertedIdeas, error: insertError } = await supabase
+        .from("general_gift_ideas")
+        .insert(ideasToInsert)
+        .select();
+
+      if (insertError) {
+        console.error("Error inserting refined ideas:", insertError);
+        return res.status(500).json({
+          success: false,
+          error: "Database error",
+          message: "Failed to save refined ideas",
+        });
+      }
+
+      // Record the refinement feedback
+      await supabase.from("general_gift_idea_feedback").upsert(
+        {
+          user_id,
+          general_gift_idea_id: id,
+          feedback_type: "refine",
+          refinement_direction,
+          updated_at: new Date().toISOString(),
+        },
+        {
+          onConflict: "user_id,general_gift_idea_id",
+        }
+      );
+
+      return res.json({
+        success: true,
+        data: {
+          original_idea: originalIdea,
+          refined_ideas: insertedIdeas,
+          refinement_direction,
+        },
+      });
+    } catch (error) {
+      console.error("Error refining general gift idea:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Internal server error",
+        message:
+          error instanceof Error ? error.message : "Failed to refine gift idea",
       });
     }
   });

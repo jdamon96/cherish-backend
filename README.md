@@ -106,6 +106,7 @@ Two-tier gift recommendation system: general categories → specific products
 
   - Query: `?user_id=X&person_id=Y&event_id=Z&include_dismissed=false`
   - Fetch stored general gift ideas
+  - **Includes user feedback status** (dismissed, not_relevant, refine, like)
   - Filter by dismissal status
 
 - **POST** `/api/general-gift-ideas/refresh`
@@ -115,8 +116,23 @@ Two-tier gift recommendation system: general categories → specific products
   - Returns fresh gift ideas
 
 - **PUT** `/api/general-gift-ideas/:id/dismiss`
+
   - Body: `{ user_id }`
   - Mark a general gift idea as dismissed
+
+- **POST** `/api/general-gift-ideas/:id/feedback`
+
+  - Body: `{ user_id, feedback_type, feedback_text?, refinement_direction? }`
+  - Provide feedback on a general gift idea
+  - Feedback types: `dismissed`, `not_relevant`, `refine`, `like`
+  - Tracks user preferences for ML/personalization
+
+- **POST** `/api/general-gift-ideas/:id/refine`
+
+  - Body: `{ user_id, refinement_direction, count?: 5 }`
+  - Generate refined versions based on user feedback
+  - Example: "make it more affordable", "make it more tech-focused"
+  - Returns new refined gift ideas
 
 #### Specific Gift Ideas Routes
 
@@ -129,8 +145,9 @@ Two-tier gift recommendation system: general categories → specific products
 
 - **GET** `/api/specific-gift-ideas`
 
-  - Query: `?general_gift_idea_id=X&limit=50&offset=0`
+  - Query: `?general_gift_idea_id=X&user_id=Y&limit=50&offset=0`
   - Fetch previously generated specific gifts for a general category
+  - **Includes interaction status** (saved/passed) when user_id provided
   - Supports pagination
 
 - **POST** `/api/specific-gift-ideas/save`

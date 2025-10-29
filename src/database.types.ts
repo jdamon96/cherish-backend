@@ -7,8 +7,6 @@ export type Json =
   | Json[];
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "13.0.5";
   };
@@ -101,6 +99,47 @@ export type Database = {
             columns: ["person_id"];
             isOneToOne: false;
             referencedRelation: "people";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
+      general_gift_idea_feedback: {
+        Row: {
+          created_at: string | null;
+          feedback_text: string | null;
+          feedback_type: string;
+          general_gift_idea_id: string;
+          id: string;
+          refinement_direction: string | null;
+          updated_at: string | null;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string | null;
+          feedback_text?: string | null;
+          feedback_type: string;
+          general_gift_idea_id: string;
+          id?: string;
+          refinement_direction?: string | null;
+          updated_at?: string | null;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string | null;
+          feedback_text?: string | null;
+          feedback_type?: string;
+          general_gift_idea_id?: string;
+          id?: string;
+          refinement_direction?: string | null;
+          updated_at?: string | null;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "general_gift_idea_feedback_general_gift_idea_id_fkey";
+            columns: ["general_gift_idea_id"];
+            isOneToOne: false;
+            referencedRelation: "general_gift_ideas";
             referencedColumns: ["id"];
           }
         ];

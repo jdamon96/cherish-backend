@@ -16,12 +16,16 @@ const server = app.listen(PORT, () => {
   console.log(`     POST /api/get-gift-recs`);
   console.log(`   General Gift Ideas:`);
   console.log(`     POST /api/general-gift-ideas/generate`);
-  console.log(`     GET  /api/general-gift-ideas`);
+  console.log(`     GET  /api/general-gift-ideas (includes feedback)`);
   console.log(`     POST /api/general-gift-ideas/refresh`);
   console.log(`     PUT  /api/general-gift-ideas/:id/dismiss`);
+  console.log(`     POST /api/general-gift-ideas/:id/feedback`);
+  console.log(`     POST /api/general-gift-ideas/:id/refine`);
   console.log(`   Specific Gift Ideas:`);
   console.log(`     POST /api/specific-gift-ideas/generate`);
-  console.log(`     GET  /api/specific-gift-ideas`);
+  console.log(
+    `     GET  /api/specific-gift-ideas (includes interaction status)`
+  );
   console.log(`     POST /api/specific-gift-ideas/save`);
   console.log(`     POST /api/specific-gift-ideas/pass`);
   console.log(`     GET  /api/specific-gift-ideas/saved`);

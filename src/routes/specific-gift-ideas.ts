@@ -593,10 +593,16 @@ Respond with ONLY a JSON array of the index numbers (e.g., [1, 5, 8, 12]). Selec
   /**
    * GET /api/specific-gift-ideas
    * Fetch previously generated specific gifts for a general category
+   * Includes interaction status (saved/passed) for the requesting user
    */
   router.get("/", async (req, res) => {
     try {
-      const { general_gift_idea_id, limit = "50", offset = "0" } = req.query;
+      const {
+        general_gift_idea_id,
+        user_id,
+        limit = "50",
+        offset = "0",
+      } = req.query;
 
       if (!general_gift_idea_id) {
         return res.status(400).json({
@@ -606,15 +612,33 @@ Respond with ONLY a JSON array of the index numbers (e.g., [1, 5, 8, 12]). Selec
         });
       }
 
-      const { data: specificGifts, error } = await supabase
+      // Build query with optional user interaction join
+      let query = supabase
         .from("specific_gift_ideas")
-        .select("*")
+        .select(
+          `
+          *,
+          gift_idea_interactions!left (
+            id,
+            interaction_type,
+            interaction_notes,
+            created_at
+          )
+        `
+        )
         .eq("general_gift_idea_id", general_gift_idea_id as string)
         .order("created_at", { ascending: false })
         .range(
           parseInt(offset as string),
           parseInt(offset as string) + parseInt(limit as string) - 1
         );
+
+      // If user_id provided, filter interactions to that user
+      if (user_id) {
+        query = query.eq("gift_idea_interactions.user_id", user_id as string);
+      }
+
+      const { data: specificGifts, error } = await query;
 
       if (error) {
         console.error("Error fetching specific gift ideas:", error);
@@ -625,11 +649,26 @@ Respond with ONLY a JSON array of the index numbers (e.g., [1, 5, 8, 12]). Selec
         });
       }
 
+      // Transform the data to include interaction status
+      const giftsWithStatus = specificGifts?.map((gift: any) => {
+        const interactions = gift.gift_idea_interactions || [];
+        const interaction = interactions[0] || null; // Get first (most recent) interaction
+
+        return {
+          ...gift,
+          interaction_status: interaction?.interaction_type || null,
+          interaction_notes: interaction?.interaction_notes || null,
+          interacted_at: interaction?.created_at || null,
+          // Remove the raw join data
+          gift_idea_interactions: undefined,
+        };
+      });
+
       return res.json({
         success: true,
         data: {
-          specific_gifts: specificGifts || [],
-          count: specificGifts?.length || 0,
+          specific_gifts: giftsWithStatus || [],
+          count: giftsWithStatus?.length || 0,
         },
       });
     } catch (error) {
