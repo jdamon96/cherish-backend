@@ -8,9 +8,28 @@ const server = app.listen(PORT, () => {
   console.log(`📊 Environment: ${env.NODE_ENV}`);
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
   console.log(`📝 API Routes:`);
-  console.log(`   POST /api/summarize-anecdote`);
-  console.log(`   POST /api/parse-gift-image`);
-  console.log(`   GET  /api/get-gift-recs`);
+  console.log(`   Person Facts:`);
+  console.log(`     POST /api/insert-person-fact`);
+  console.log(`   Gift Parsing:`);
+  console.log(`     POST /api/parse-gift-image`);
+  console.log(`   Gift Recommendations (Legacy):`);
+  console.log(`     POST /api/get-gift-recs`);
+  console.log(`   General Gift Ideas:`);
+  console.log(`     POST /api/general-gift-ideas/generate`);
+  console.log(`     GET  /api/general-gift-ideas`);
+  console.log(`     POST /api/general-gift-ideas/refresh`);
+  console.log(`     PUT  /api/general-gift-ideas/:id/dismiss`);
+  console.log(`   Specific Gift Ideas:`);
+  console.log(`     POST /api/specific-gift-ideas/generate`);
+  console.log(`     GET  /api/specific-gift-ideas`);
+  console.log(`     POST /api/specific-gift-ideas/save`);
+  console.log(`     POST /api/specific-gift-ideas/pass`);
+  console.log(`     GET  /api/specific-gift-ideas/saved`);
+  console.log(`   Product Search:`);
+  console.log(`     POST /api/product/search`);
+  console.log(`     POST /api/product/metadata`);
+  console.log(`     POST /api/product/lookup`);
+  console.log(`     POST /api/product/screenshot`);
 });
 
 // Graceful shutdown

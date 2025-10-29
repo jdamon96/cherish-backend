@@ -8,6 +8,9 @@ import { createSupabaseClient, Database } from "./config/supabase";
 import { insertPersonFactRoutes } from "./routes/insert-person-fact";
 import { parseGiftRoutes } from "./routes/parse-gift";
 import { giftRecsRoutes } from "./routes/gift-recs";
+import { productSearchRoutes } from "./routes/product-search";
+import { generalGiftIdeasRoutes } from "./routes/general-gift-ideas";
+import { specificGiftIdeasRoutes } from "./routes/specific-gift-ideas";
 
 // Load environment variables
 require("dotenv").config();
@@ -57,6 +60,9 @@ app.get("/health", (req, res) => {
 app.use("/api/insert-person-fact", insertPersonFactRoutes(supabase));
 app.use("/api/parse-gift-image", parseGiftRoutes(supabase));
 app.use("/api/get-gift-recs", giftRecsRoutes(supabase));
+app.use("/api/product", productSearchRoutes());
+app.use("/api/general-gift-ideas", generalGiftIdeasRoutes(supabase));
+app.use("/api/specific-gift-ideas", specificGiftIdeasRoutes(supabase));
 
 // Error handling middleware
 app.use(

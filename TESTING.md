@@ -15,6 +15,7 @@
    SUPABASE_PROJECT_ID=your_project_id
    SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
    OPENAI_API_KEY=your_openai_api_key
+   EXA_API_KEY=your_exa_api_key
    PORT=3000
    NODE_ENV=development
    ```
@@ -215,10 +216,152 @@ The following endpoints are currently stubs and will return placeholder response
 - `POST /api/get-gift-recs` - Returns stub response
 - `POST /api/parse-gift-image` - Returns stub response
 
+## Testing Product Search Endpoints
+
+### 1. Search Product - Find Where to Buy
+
+**Endpoint:** `POST /api/product/search`
+
+**Required Body:**
+
+```json
+{
+  "productName": "Sony WH-1000XM5 Headphones"
+}
+```
+
+**Example Request:**
+
+```bash
+curl -X POST http://localhost:3000/api/product/search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "productName": "Sony WH-1000XM5 Headphones"
+  }'
+```
+
+**Expected Success Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "productName": "Sony WH-1000XM5 Headphones",
+    "searchQuery": "where to buy Sony WH-1000XM5 Headphones online",
+    "results": [
+      {
+        "title": "Sony WH-1000XM5 - Amazon.com",
+        "url": "https://www.amazon.com/Sony-WH-1000XM5-Headphones/...",
+        "publishedDate": "2023-05-15",
+        "author": null
+      },
+      {
+        "title": "Sony WH-1000XM5 - Best Buy",
+        "url": "https://www.bestbuy.com/site/sony-wh-1000xm5/...",
+        "publishedDate": "2023-06-20",
+        "author": null
+      }
+    ],
+    "totalResults": 10
+  }
+}
+```
+
+**Expected Error Response (Missing productName):**
+
+```json
+{
+  "success": false,
+  "error": "Missing or invalid parameter",
+  "message": "productName (string) is required"
+}
+```
+
+### 2. Product Metadata - Extract Product Details from URL
+
+**Endpoint:** `POST /api/product/metadata`
+
+**Required Body:**
+
+```json
+{
+  "productUrl": "https://www.amazon.com/Sony-WH-1000XM5/..."
+}
+```
+
+**Example Request:**
+
+```bash
+curl -X POST http://localhost:3000/api/product/metadata \
+  -H "Content-Type: application/json" \
+  -d '{
+    "productUrl": "https://www.amazon.com/Sony-WH-1000XM5-Wireless-Canceling-Headphones/dp/B09XS7JWHH"
+  }'
+```
+
+**Expected Success Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "name": "Sony WH-1000XM5 Wireless Noise Canceling Headphones",
+    "price": "$399.99",
+    "imageUrl": "https://m.media-amazon.com/images/I/61vFO3duAhL._AC_SL1500_.jpg",
+    "description": "Industry-leading noise cancellation with two processors controlling 8 microphones for unprecedented noise cancellation...",
+    "productUrl": "https://www.amazon.com/Sony-WH-1000XM5-Wireless-Canceling-Headphones/dp/B09XS7JWHH"
+  }
+}
+```
+
+**Expected Error Responses:**
+
+Missing productUrl:
+
+```json
+{
+  "success": false,
+  "error": "Missing or invalid parameter",
+  "message": "productUrl (string) is required"
+}
+```
+
+Invalid URL format:
+
+```json
+{
+  "success": false,
+  "error": "Invalid URL format",
+  "message": "productUrl must be a valid URL"
+}
+```
+
+Product not found:
+
+```json
+{
+  "success": false,
+  "error": "Product not found",
+  "message": "Could not retrieve product information from the provided URL"
+}
+```
+
+### Product Endpoints Use Cases
+
+1. **Search for where to buy a gift idea:**
+   - User receives gift recommendations
+   - Search for each gift to find purchase locations
+   - Display multiple purchase options to user
+
+2. **Extract product details from a URL:**
+   - User finds a product they want to save
+   - Extract metadata to store in database
+   - Display product card with image, price, and description
+
 ## Next Steps
 
-Once the summarize-anecdote endpoint is working correctly, you can:
+Once the endpoints are working correctly, you can:
 
 1. Deploy to Render.com
 2. Integrate with your frontend
-3. Implement the other endpoints as needed
+3. Implement additional features as needed
