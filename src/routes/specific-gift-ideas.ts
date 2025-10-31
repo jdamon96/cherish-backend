@@ -582,7 +582,7 @@ AVOID:
 Respond with ONLY a JSON array of the index numbers (e.g., [1, 5, 8, 12]). Select exactly ${topN} items.`;
 
       const llmResponse = await openai.chat.completions.create({
-        model: "gpt-4",
+        model: "chatgpt-4o-latest",
         messages: [
           {
             role: "system",
