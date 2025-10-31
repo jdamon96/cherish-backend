@@ -101,6 +101,22 @@ class ParallelWebSearchService {
       betas: ["search-extract-2025-10-10"],
     });
 
+    console.log(
+      "[ParallelWebSearchService] Raw search response:",
+      JSON.stringify(search, null, 2)
+    );
+    console.log(
+      "[ParallelWebSearchService] Results count:",
+      search.results?.length || 0
+    );
+
+    if (!search.results || search.results.length === 0) {
+      console.warn(
+        "[ParallelWebSearchService] No results returned from Parallel Web"
+      );
+      return [];
+    }
+
     return search.results.map((result: any) => ({
       title: result.title || "Unknown",
       url: result.url,
@@ -538,13 +554,31 @@ export function specificGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
         parallelClient
       );
 
+      console.log(
+        `[SpecificGiftIdeas] Search orchestrator returned ${searchResults.length} provider result(s)`
+      );
+      searchResults.forEach((result, idx) => {
+        console.log(
+          `[SpecificGiftIdeas] Provider ${idx + 1} (${result.source}): ${
+            result.results.length
+          } results`
+        );
+      });
+
       // Combine all search results
       const allResults: SearchResult[] = [];
       searchResults.forEach((result) => {
         allResults.push(...result.results);
       });
 
+      console.log(
+        `[SpecificGiftIdeas] Combined total: ${allResults.length} search results`
+      );
+
       if (allResults.length === 0) {
+        console.error(
+          `[SpecificGiftIdeas] No products found for "${generalIdea.idea_text}"`
+        );
         return res.status(404).json({
           success: false,
           error: "No products found",
