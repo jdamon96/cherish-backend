@@ -58,15 +58,8 @@ interface MetadataServiceResult {
 
 // Configuration
 const CONFIG = {
-  searchProviders: [
-    SearchProvider.EXA,
-    // SearchProvider.PARALLEL_WEB,
-  ] as SearchProvider[],
-  metadataProviders: [
-    MetadataProvider.EXA_CONTENTS,
-    MetadataProvider.APIFY_AMAZON,
-    // MetadataProvider.PARALLEL_WEB,
-  ] as MetadataProvider[],
+  searchProviders: [SearchProvider.PARALLEL_WEB] as SearchProvider[],
+  metadataProviders: [MetadataProvider.PARALLEL_WEB] as MetadataProvider[],
   maxSearchResults: 10,
   useUrlRouting: true,
 };
