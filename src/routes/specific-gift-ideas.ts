@@ -986,45 +986,153 @@ Respond with ONLY a JSON array of the index numbers (e.g., [1, 5, 8, 12]). Selec
       const { user_id, person_id, event_id } = req.query;
 
       // Validate required parameters
-      if (!user_id || !person_id || !event_id) {
+      if (!user_id || !person_id) {
         return res.status(400).json({
           success: false,
           error: "Missing required parameters",
-          message: "user_id, person_id, and event_id query params are required",
+          message: "user_id and person_id query params are required",
         });
       }
 
-      // Fetch saved interactions with gift details
-      const { data: interactions, error: interactionsError } = await supabase
-        .from("gift_idea_interactions")
-        .select(
+      // Handle different query modes
+      if (event_id && event_id !== "all") {
+        // Mode 1: Fetch gifts for specific event OR gifts with no event
+        const [eventGifts, noEventGifts] = await Promise.all([
+          supabase
+            .from("gift_idea_interactions")
+            .select(
+              `
+              *,
+              specific_gift_ideas (*),
+              events (
+                id,
+                name,
+                event_type,
+                recurring_month,
+                recurring_day,
+                specific_date
+              )
+            `
+            )
+            .eq("user_id", user_id as string)
+            .eq("person_id", person_id as string)
+            .eq("event_id", event_id as string)
+            .eq("interaction_type", "saved")
+            .order("created_at", { ascending: false }),
+          supabase
+            .from("gift_idea_interactions")
+            .select(
+              `
+              *,
+              specific_gift_ideas (*),
+              events (
+                id,
+                name,
+                event_type,
+                recurring_month,
+                recurring_day,
+                specific_date
+              )
+            `
+            )
+            .eq("user_id", user_id as string)
+            .eq("person_id", person_id as string)
+            .is("event_id", null)
+            .eq("interaction_type", "saved")
+            .order("created_at", { ascending: false }),
+        ]);
+
+        if (eventGifts.error) {
+          console.error("Error fetching event gifts:", eventGifts.error);
+          return res.status(500).json({
+            success: false,
+            error: "Database error",
+            message: "Failed to fetch saved gifts",
+          });
+        }
+
+        if (noEventGifts.error) {
+          console.error("Error fetching no-event gifts:", noEventGifts.error);
+          return res.status(500).json({
+            success: false,
+            error: "Database error",
+            message: "Failed to fetch saved gifts",
+          });
+        }
+
+        // Combine: event-specific gifts first, then no-event gifts
+        const allInteractions = [
+          ...(eventGifts.data || []),
+          ...(noEventGifts.data || []),
+        ];
+
+        const gifts = allInteractions
+          .map((interaction: any) => ({
+            ...interaction.specific_gift_ideas,
+            saved_for_event: interaction.events || null,
+            saved_at: interaction.created_at,
+          }))
+          .filter((gift: any) => gift.id !== undefined);
+
+        return res.json({
+          success: true,
+          data: {
+            gifts: gifts,
+            count: gifts.length,
+            event_specific_count: (eventGifts.data || []).length,
+            no_event_count: (noEventGifts.data || []).length,
+          },
+        });
+      } else {
+        // Mode 2: Fetch all gifts for the person across all events
+        const { data: interactions, error: interactionsError } = await supabase
+          .from("gift_idea_interactions")
+          .select(
+            `
+            *,
+            specific_gift_ideas (*),
+            events (
+              id,
+              name,
+              event_type,
+              recurring_month,
+              recurring_day,
+              specific_date
+            )
           `
-          *,
-          specific_gift_ideas (*)
-        `
-        )
-        .eq("user_id", user_id as string)
-        .eq("person_id", person_id as string)
-        .eq("event_id", event_id as string)
-        .eq("interaction_type", "saved")
-        .order("created_at", { ascending: false });
+          )
+          .eq("user_id", user_id as string)
+          .eq("person_id", person_id as string)
+          .eq("interaction_type", "saved")
+          .order("created_at", { ascending: false });
 
-      if (interactionsError) {
-        console.error("Error fetching saved gifts:", interactionsError);
-        return res.status(500).json({
-          success: false,
-          error: "Database error",
-          message: "Failed to fetch saved gifts",
+        if (interactionsError) {
+          console.error("Error fetching saved gifts:", interactionsError);
+          return res.status(500).json({
+            success: false,
+            error: "Database error",
+            message: "Failed to fetch saved gifts",
+          });
+        }
+
+        // Extract gift ideas with event metadata
+        const gifts =
+          interactions
+            ?.map((interaction: any) => ({
+              ...interaction.specific_gift_ideas,
+              saved_for_event: interaction.events || null,
+              saved_at: interaction.created_at,
+            }))
+            .filter((gift: any) => gift.id !== undefined) || [];
+
+        return res.json({
+          success: true,
+          data: {
+            gifts: gifts,
+            count: gifts.length,
+          },
         });
       }
-
-      return res.json({
-        success: true,
-        data: {
-          saved_gifts: interactions || [],
-          count: interactions?.length || 0,
-        },
-      });
     } catch (error) {
       console.error("Error in fetch saved gifts:", error);
       return res.status(500).json({
