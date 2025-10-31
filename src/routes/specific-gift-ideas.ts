@@ -3,6 +3,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import Exa from "exa-js";
 import OpenAI from "openai";
 import { ApifyClient } from "apify-client";
+import Parallel from "parallel-web";
 import { Database } from "../config/supabase";
 
 // Import types and orchestrators from product-search
@@ -36,11 +37,13 @@ interface ProductMetadata {
 enum SearchProvider {
   EXA = "exa",
   OPENAI_WEB_SEARCH = "openai_web_search",
+  PARALLEL_WEB = "parallel_web",
 }
 
 enum MetadataProvider {
   EXA_CONTENTS = "exa_contents",
   APIFY_AMAZON = "apify_amazon",
+  PARALLEL_WEB = "parallel_web",
 }
 
 interface SearchServiceResult {
@@ -55,10 +58,14 @@ interface MetadataServiceResult {
 
 // Configuration
 const CONFIG = {
-  searchProviders: [SearchProvider.EXA] as SearchProvider[],
+  searchProviders: [
+    SearchProvider.EXA,
+    // SearchProvider.PARALLEL_WEB,
+  ] as SearchProvider[],
   metadataProviders: [
     MetadataProvider.EXA_CONTENTS,
     MetadataProvider.APIFY_AMAZON,
+    // MetadataProvider.PARALLEL_WEB,
   ] as MetadataProvider[],
   maxSearchResults: 10,
   useUrlRouting: true,
@@ -82,6 +89,30 @@ class ExaSearchService {
       url: result.url,
       publishedDate: result.publishedDate,
       author: result.author,
+    }));
+  }
+}
+
+class ParallelWebSearchService {
+  constructor(private client: any) {}
+
+  async search(productName: string): Promise<SearchResult[]> {
+    console.log("[ParallelWebSearchService] Searching:", productName);
+
+    const searchQuery = `where to buy ${productName} online`;
+    const search = await this.client.beta.search({
+      objective: `Find online stores selling ${productName}`,
+      search_queries: [searchQuery, productName],
+      max_results: CONFIG.maxSearchResults,
+      max_chars_per_result: 5000,
+      betas: ["search-extract-2025-10-10"],
+    });
+
+    return search.results.map((result: any) => ({
+      title: result.title || "Unknown",
+      url: result.url,
+      publishedDate: undefined,
+      author: undefined,
     }));
   }
 }
@@ -229,15 +260,89 @@ class ApifyAmazonMetadataService {
   }
 }
 
+class ParallelWebMetadataService {
+  constructor(private client: any) {}
+
+  async extractMetadata(url: string): Promise<ProductMetadata> {
+    console.log("[ParallelWebMetadataService] Extracting metadata from:", url);
+
+    const taskRun = await this.client.taskRun.create({
+      input: { product_url: url },
+      processor: "pro",
+      task_spec: {
+        input_schema: {
+          json_schema: {
+            properties: {
+              product_url: {
+                description:
+                  "The URL of the product to retrieve structured metadata for",
+                type: "string",
+              },
+            },
+            type: "object",
+          },
+          type: "json",
+        },
+        output_schema: {
+          json_schema: {
+            additionalProperties: false,
+            properties: {
+              title: {
+                description: "The full, official title of the product",
+                type: "string",
+              },
+              description: {
+                description: "A comprehensive description of the product",
+                type: "string",
+              },
+              price: {
+                description: "The current selling price with currency symbol",
+                type: "string",
+              },
+              image_url: {
+                description: "The direct URL to the primary product image",
+                type: "string",
+              },
+            },
+            required: ["title", "description", "price", "image_url"],
+            type: "object",
+          },
+          type: "json",
+        },
+      },
+    });
+
+    const runResult = await this.client.taskRun.result(taskRun.run_id, {
+      timeout: 120, // 2 minutes
+    });
+
+    const output = runResult.output;
+    return {
+      name: output.title || "Unknown Product",
+      price: {
+        amount: null,
+        currency: null,
+        formatted: output.price || null,
+      },
+      thumbnailImage: output.image_url || null,
+      highResolutionImages: output.image_url ? [output.image_url] : [],
+      description: output.description || "",
+      productUrl: url,
+    };
+  }
+}
+
 // Orchestrators
 async function searchProductOrchestrator(
   productName: string,
   providers: SearchProvider[],
   exa: Exa,
-  openai: OpenAI
+  openai: OpenAI,
+  parallelClient: any
 ): Promise<SearchServiceResult[]> {
   const services: { [key: string]: any } = {
     [SearchProvider.EXA]: new ExaSearchService(exa),
+    [SearchProvider.PARALLEL_WEB]: new ParallelWebSearchService(parallelClient),
   };
 
   const promises = providers.map(async (provider) => {
@@ -267,10 +372,12 @@ async function extractMetadataOrchestrator(
   providers: MetadataProvider[],
   exa: Exa,
   apifyToken: string,
+  parallelClient: any,
   config: typeof CONFIG
 ): Promise<MetadataServiceResult[]> {
   const apifyService = new ApifyAmazonMetadataService(apifyToken);
   const exaService = new ExaMetadataService(exa);
+  const parallelService = new ParallelWebMetadataService(parallelClient);
 
   const isAmazon = apifyService.isAmazonUrl(url);
 
@@ -327,6 +434,7 @@ async function extractMetadataOrchestrator(
   const services: { [key: string]: any } = {
     [MetadataProvider.EXA_CONTENTS]: exaService,
     [MetadataProvider.APIFY_AMAZON]: apifyService,
+    [MetadataProvider.PARALLEL_WEB]: parallelService,
   };
 
   const promises = providers.map(async (provider) => {
@@ -378,6 +486,12 @@ export function specificGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
     throw new Error("APIFY_API_TOKEN environment variable is not set");
   }
 
+  const parallelApiKey = process.env.PARALLEL_API_KEY;
+  let parallelClient: any = null;
+  if (parallelApiKey) {
+    parallelClient = new Parallel({ apiKey: parallelApiKey });
+  }
+
   /**
    * POST /api/specific-gift-ideas/generate
    * Generate specific purchasable products from a general gift idea
@@ -427,7 +541,8 @@ export function specificGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
         generalIdea.idea_text,
         CONFIG.searchProviders,
         exa,
-        openai
+        openai,
+        parallelClient
       );
 
       // Combine all search results
@@ -525,6 +640,7 @@ Respond with ONLY a JSON array of the index numbers (e.g., [1, 5, 8, 12]). Selec
             CONFIG.metadataProviders,
             exa,
             apifyApiToken,
+            parallelClient,
             CONFIG
           );
           // Use the first successful result

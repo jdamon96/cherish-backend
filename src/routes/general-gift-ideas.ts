@@ -16,6 +16,18 @@ export function generalGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
     reasoning: string;
   }
 
+  // Feedback type ENUM - matches what should be in the database
+  enum FeedbackType {
+    BAD_IDEA = "bad_idea",
+    NOT_RELEVANT = "not_relevant",
+    REFINE = "refine",
+    LIKE = "like",
+    DISMISSED = "dismissed",
+  }
+
+  // Valid feedback types array for validation
+  const VALID_FEEDBACK_TYPES = Object.values(FeedbackType);
+
   /**
    * POST /api/general-gift-ideas/generate
    * Generate initial set of general gift ideas for a person + event
@@ -656,12 +668,13 @@ Generate all ${count} NEW ideas in this format.`;
       }
 
       // Validate feedback_type
-      const validTypes = ["dismissed", "not_relevant", "refine", "like"];
-      if (!validTypes.includes(feedback_type)) {
+      if (!VALID_FEEDBACK_TYPES.includes(feedback_type)) {
         return res.status(400).json({
           success: false,
           error: "Invalid feedback_type",
-          message: `feedback_type must be one of: ${validTypes.join(", ")}`,
+          message: `feedback_type must be one of: ${VALID_FEEDBACK_TYPES.join(
+            ", "
+          )}`,
         });
       }
 
@@ -709,8 +722,12 @@ Generate all ${count} NEW ideas in this format.`;
         });
       }
 
-      // If feedback is dismissed/not_relevant, also update is_dismissed on the idea
-      if (feedback_type === "dismissed" || feedback_type === "not_relevant") {
+      // If feedback is dismissed/not_relevant/bad_idea, also update is_dismissed on the idea
+      if (
+        feedback_type === FeedbackType.DISMISSED ||
+        feedback_type === FeedbackType.NOT_RELEVANT ||
+        feedback_type === FeedbackType.BAD_IDEA
+      ) {
         await supabase
           .from("general_gift_ideas")
           .update({
