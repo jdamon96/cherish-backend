@@ -23,8 +23,7 @@ interface Price {
 interface ProductMetadata {
   name: string;
   price: Price;
-  thumbnailImage: string | null;
-  highResolutionImages: string[];
+  imageUrls: string[];
   description: string;
   productUrl: string;
   availability?: string;
@@ -201,8 +200,7 @@ class ExaMetadataService {
         currency: null,
         formatted: null,
       },
-      thumbnailImage: null,
-      highResolutionImages: [],
+      imageUrls: [],
       description: result.text?.substring(0, 300) || "",
       productUrl: url,
     };
@@ -284,12 +282,23 @@ class ApifyAmazonMetadataService {
       };
     }
 
-    // Get high resolution images array
-    const highResImages: string[] = [];
+    // Build image URLs array with primary image first, then additional images
+    const imageUrls: string[] = [];
+
+    // Add primary/thumbnail image first
+    if (item.thumbnailImage) {
+      imageUrls.push(String(item.thumbnailImage));
+    } else if (item.image) {
+      imageUrls.push(String(item.image));
+    } else if (item.imageUrl) {
+      imageUrls.push(String(item.imageUrl));
+    }
+
+    // Add high-resolution images
     if (Array.isArray(item.highResolutionImages)) {
-      highResImages.push(...item.highResolutionImages);
+      imageUrls.push(...item.highResolutionImages.map(String));
     } else if (Array.isArray(item.images)) {
-      highResImages.push(...item.images);
+      imageUrls.push(...item.images.map(String));
     }
 
     // Parse availability
@@ -305,14 +314,7 @@ class ApifyAmazonMetadataService {
     return {
       name: String(item.title || item.name || "Unknown Product"),
       price: priceData,
-      thumbnailImage: item.thumbnailImage
-        ? String(item.thumbnailImage)
-        : item.image
-        ? String(item.image)
-        : item.imageUrl
-        ? String(item.imageUrl)
-        : null,
-      highResolutionImages: highResImages,
+      imageUrls,
       description: String(
         item.description ||
           item.productDescription ||
@@ -359,16 +361,30 @@ class ParallelWebMetadataService {
           type: "string" as const,
           description: "A comprehensive description of the product",
         },
-        price: {
-          type: "string" as const,
-          description: "The current selling price with currency symbol",
+        price_amount: {
+          type: "number" as const,
+          description: "The numeric price amount (e.g., 29.99)",
         },
-        image_url: {
+        price_currency: {
           type: "string" as const,
-          description: "The direct URL to the primary product image",
+          description: "The ISO 4217 currency code (e.g., USD, EUR, GBP)",
+        },
+        image_urls: {
+          type: "array" as const,
+          items: {
+            type: "string" as const,
+          },
+          description:
+            "Array of product image URLs, with the primary/best image first",
         },
       },
-      required: ["title", "description", "price", "image_url"],
+      required: [
+        "title",
+        "description",
+        "price_amount",
+        "price_currency",
+        "image_urls",
+      ],
       additionalProperties: false,
     };
 
@@ -376,8 +392,9 @@ class ParallelWebMetadataService {
     type ParallelProductOutput = {
       title: string;
       description: string;
-      price: string;
-      image_url: string;
+      price_amount: number;
+      price_currency: string;
+      image_urls: string[];
     };
 
     const taskRun = await this.client.taskRun.create({
@@ -419,12 +436,14 @@ class ParallelWebMetadataService {
     return {
       name: output.title || "Unknown Product",
       price: {
-        amount: null,
-        currency: null,
-        formatted: output.price || null,
+        amount: output.price_amount || null,
+        currency: output.price_currency || null,
+        formatted:
+          output.price_amount && output.price_currency
+            ? `${output.price_currency} ${output.price_amount.toFixed(2)}`
+            : null,
       },
-      thumbnailImage: output.image_url || null,
-      highResolutionImages: output.image_url ? [output.image_url] : [],
+      imageUrls: output.image_urls || [],
       description: output.description || "",
       productUrl: url,
     };
@@ -507,8 +526,7 @@ async function extractMetadataOrchestrator(
                 currency: null,
                 formatted: null,
               },
-              thumbnailImage: null,
-              highResolutionImages: [],
+              imageUrls: [],
               description:
                 error instanceof Error
                   ? error.message
@@ -535,8 +553,7 @@ async function extractMetadataOrchestrator(
                 currency: null,
                 formatted: null,
               },
-              thumbnailImage: null,
-              highResolutionImages: [],
+              imageUrls: [],
               description:
                 error instanceof Error
                   ? error.message
@@ -577,8 +594,7 @@ async function extractMetadataOrchestrator(
             currency: null,
             formatted: null,
           },
-          thumbnailImage: null,
-          highResolutionImages: [],
+          imageUrls: [],
           description:
             error instanceof Error ? error.message : "Unknown error occurred",
           productUrl: url,
