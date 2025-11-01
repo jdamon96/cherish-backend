@@ -337,7 +337,7 @@ class ParallelWebMetadataService {
 
     const taskRun = await this.client.taskRun.create({
       input: { product_url: url },
-      processor: "pro",
+      processor: "lite",
       task_spec: {
         input_schema: {
           json_schema: {
@@ -382,7 +382,7 @@ class ParallelWebMetadataService {
     });
 
     const runResult = await this.client.taskRun.result(taskRun.run_id, {
-      timeout: 120, // 2 minutes
+      timeout: 3600, // 1 hour
     });
 
     const output = runResult.output;
