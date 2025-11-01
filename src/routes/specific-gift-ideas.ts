@@ -87,7 +87,7 @@ class ExaSearchService {
 }
 
 class ParallelWebSearchService {
-  constructor(private client: any) {}
+  constructor(private client: Parallel) {}
 
   async search(productName: string): Promise<SearchResult[]> {
     console.log("[ParallelWebSearchService] Searching:", productName);
@@ -270,62 +270,92 @@ class ApifyAmazonMetadataService {
 }
 
 class ParallelWebMetadataService {
-  constructor(private client: any) {}
+  constructor(private client: Parallel) {}
 
   async extractMetadata(url: string): Promise<ProductMetadata> {
     console.log("[ParallelWebMetadataService] Extracting metadata from:", url);
+
+    // Define schemas with proper typing using 'as const'
+    const inputSchema = {
+      type: "object" as const,
+      properties: {
+        product_url: {
+          type: "string" as const,
+          description:
+            "The URL of the product to retrieve structured metadata for",
+        },
+      },
+      required: ["product_url"],
+    };
+
+    const outputSchema = {
+      type: "object" as const,
+      properties: {
+        title: {
+          type: "string" as const,
+          description: "The full, official title of the product",
+        },
+        description: {
+          type: "string" as const,
+          description: "A comprehensive description of the product",
+        },
+        price: {
+          type: "string" as const,
+          description: "The current selling price with currency symbol",
+        },
+        image_url: {
+          type: "string" as const,
+          description: "The direct URL to the primary product image",
+        },
+      },
+      required: ["title", "description", "price", "image_url"],
+      additionalProperties: false,
+    };
+
+    // Type for the expected output
+    type ParallelProductOutput = {
+      title: string;
+      description: string;
+      price: string;
+      image_url: string;
+    };
 
     const taskRun = await this.client.taskRun.create({
       input: { product_url: url },
       processor: "pro",
       task_spec: {
         input_schema: {
-          json_schema: {
-            properties: {
-              product_url: {
-                description:
-                  "The URL of the product to retrieve structured metadata for",
-                type: "string",
-              },
-            },
-            type: "object",
-          },
           type: "json",
+          json_schema: inputSchema,
         },
         output_schema: {
-          json_schema: {
-            additionalProperties: false,
-            properties: {
-              title: {
-                description: "The full, official title of the product",
-                type: "string",
-              },
-              description: {
-                description: "A comprehensive description of the product",
-                type: "string",
-              },
-              price: {
-                description: "The current selling price with currency symbol",
-                type: "string",
-              },
-              image_url: {
-                description: "The direct URL to the primary product image",
-                type: "string",
-              },
-            },
-            required: ["title", "description", "price", "image_url"],
-            type: "object",
-          },
           type: "json",
+          json_schema: outputSchema,
         },
       },
     });
 
-    const runResult = await this.client.taskRun.result(taskRun.run_id, {
-      timeout: 120, // 2 minutes
-    });
+    // Poll for results with timeout and retry logic (following docs pattern)
+    let runResult;
+    for (let i = 0; i < 144; i++) {
+      try {
+        runResult = await this.client.taskRun.result(taskRun.run_id, {
+          timeout: 25,
+        });
+        break;
+      } catch (error) {
+        if (i === 143) throw error; // Last attempt failed
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    }
 
-    const output = runResult.output;
+    if (!runResult) {
+      throw new Error("Failed to get task run result after retries");
+    }
+
+    // Type the output content based on our schema
+    const output = runResult.output.content as ParallelProductOutput;
+
     return {
       name: output.title || "Unknown Product",
       price: {
@@ -347,11 +377,13 @@ async function searchProductOrchestrator(
   providers: SearchProvider[],
   exa: Exa,
   openai: OpenAI,
-  parallelClient: any
+  parallelClient: Parallel | null
 ): Promise<SearchServiceResult[]> {
   const services: { [key: string]: any } = {
     [SearchProvider.EXA]: new ExaSearchService(exa),
-    [SearchProvider.PARALLEL_WEB]: new ParallelWebSearchService(parallelClient),
+    ...(parallelClient && {
+      [SearchProvider.PARALLEL_WEB]: new ParallelWebSearchService(parallelClient),
+    }),
   };
 
   const promises = providers.map(async (provider) => {
@@ -381,12 +413,14 @@ async function extractMetadataOrchestrator(
   providers: MetadataProvider[],
   exa: Exa,
   apifyToken: string,
-  parallelClient: any,
+  parallelClient: Parallel | null,
   config: typeof CONFIG
 ): Promise<MetadataServiceResult[]> {
   const apifyService = new ApifyAmazonMetadataService(apifyToken);
   const exaService = new ExaMetadataService(exa);
-  const parallelService = new ParallelWebMetadataService(parallelClient);
+  const parallelService = parallelClient
+    ? new ParallelWebMetadataService(parallelClient)
+    : null;
 
   const isAmazon = apifyService.isAmazonUrl(url);
 
@@ -443,7 +477,9 @@ async function extractMetadataOrchestrator(
   const services: { [key: string]: any } = {
     [MetadataProvider.EXA_CONTENTS]: exaService,
     [MetadataProvider.APIFY_AMAZON]: apifyService,
-    [MetadataProvider.PARALLEL_WEB]: parallelService,
+    ...(parallelService && {
+      [MetadataProvider.PARALLEL_WEB]: parallelService,
+    }),
   };
 
   const promises = providers.map(async (provider) => {
@@ -482,7 +518,7 @@ async function extractMetadataOrchestrator(
 async function extractProductNamesFromIdea(
   giftIdeaText: string,
   count: number,
-  parallelClient: any,
+  parallelClient: Parallel,
   openai: OpenAI
 ): Promise<string[]> {
   console.log(
@@ -607,7 +643,7 @@ export function specificGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
   }
 
   const parallelApiKey = process.env.PARALLEL_API_KEY;
-  let parallelClient: any = null;
+  let parallelClient: Parallel | null = null;
   if (parallelApiKey) {
     parallelClient = new Parallel({ apiKey: parallelApiKey });
   }
