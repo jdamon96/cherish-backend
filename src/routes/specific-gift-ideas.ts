@@ -61,7 +61,7 @@ const CONFIG = {
   searchProviders: [SearchProvider.PARALLEL_WEB] as SearchProvider[],
   metadataProviders: [MetadataProvider.PARALLEL_WEB] as MetadataProvider[],
   maxSearchResults: 10,
-  useUrlRouting: true,
+  useUrlRouting: false, // Use PARALLEL_WEB for ALL URLs (no automatic routing to Apify/Exa)
 };
 
 // Search Services
