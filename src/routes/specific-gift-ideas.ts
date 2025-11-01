@@ -692,6 +692,15 @@ export function specificGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
         `[SpecificGiftIdeas] Generating products for: "${generalIdea.idea_text}"`
       );
 
+      // Validate that Parallel client is available
+      if (!parallelClient) {
+        return res.status(500).json({
+          success: false,
+          error: "Service unavailable",
+          message: "Parallel API is not configured",
+        });
+      }
+
       // NEW STEP 1: Extract specific product names from the general gift idea
       const productNames = await extractProductNamesFromIdea(
         generalIdea.idea_text,
