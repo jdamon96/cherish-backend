@@ -474,6 +474,117 @@ async function extractMetadataOrchestrator(
   return Promise.all(promises);
 }
 
+// Product Name Extraction
+/**
+ * Extract specific product names from a general gift idea
+ * Step 1 of the 3-step pipeline: General Gift Idea → Product Names
+ */
+async function extractProductNamesFromIdea(
+  giftIdeaText: string,
+  count: number,
+  parallelClient: any,
+  openai: OpenAI
+): Promise<string[]> {
+  console.log(
+    `[ProductNameExtraction] Extracting ${count} product names for: "${giftIdeaText}"`
+  );
+
+  // Search for the gift idea (without "where to buy" - we want product listings/reviews)
+  const search = await parallelClient.beta.search({
+    objective: `Find specific real products for ${giftIdeaText}`,
+    search_queries: [
+      giftIdeaText,
+      `best ${giftIdeaText}`,
+      `top ${giftIdeaText}`,
+    ],
+    max_results: 20, // Get more results to increase variety
+    max_chars_per_result: 5000,
+    betas: ["search-extract-2025-10-10"],
+  });
+
+  console.log(
+    `[ProductNameExtraction] Search returned ${search.results?.length || 0} results`
+  );
+
+  if (!search.results || search.results.length === 0) {
+    console.warn(
+      "[ProductNameExtraction] No search results returned, cannot extract product names"
+    );
+    return [];
+  }
+
+  // Prepare search results for LLM
+  const searchResultsForLLM = search.results.map((result: any, index: number) => ({
+    index: index + 1,
+    title: result.title,
+    url: result.url,
+    excerpts: result.excerpts || [],
+  }));
+
+  // Use LLM to extract specific product names
+  const llmPrompt = `You are helping to extract specific, real product names from search results.
+
+Gift idea category: "${giftIdeaText}"
+
+Here are search results about this category:
+${JSON.stringify(searchResultsForLLM, null, 2)}
+
+Your task: Extract ${count} SPECIFIC PRODUCT NAMES from these search results. Look for:
+- Full product names with brands and titles (e.g., "The Garden-Fresh Vegetable Cookbook by Andrea Chesman")
+- Actual products mentioned in titles or excerpts
+- Real product names, not generic descriptions
+- Include the author/brand if mentioned
+
+IMPORTANT:
+- Extract only REAL products that are actually mentioned in the search results
+- Do NOT make up or invent product names
+- Do NOT use generic terms like "Garden Cookbook" - use full specific names
+- If a result mentions multiple products, extract all of them
+- Prioritize products that appear on e-commerce sites (Amazon, retailers, etc.)
+
+Respond with ONLY a JSON object with a "products" key containing an array of product name strings.
+Example: {"products": ["Product Name 1", "Product Name 2", "Product Name 3"]}`;
+
+  const llmResponse = await openai.chat.completions.create({
+    model: "chatgpt-4o-latest",
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are an expert at extracting specific product names from search results. Respond only with valid JSON containing a products array.",
+      },
+      {
+        role: "user",
+        content: llmPrompt,
+      },
+    ],
+    response_format: { type: "json_object" },
+    temperature: 0,
+  });
+
+  const llmContent = llmResponse.choices[0]?.message?.content;
+  if (!llmContent) {
+    throw new Error("LLM failed to extract product names");
+  }
+
+  let productNames: string[];
+  try {
+    const parsed = JSON.parse(llmContent);
+    productNames = parsed.products || [];
+  } catch (parseError) {
+    console.error("Error parsing LLM response:", parseError);
+    return [];
+  }
+
+  console.log(
+    `[ProductNameExtraction] Extracted ${productNames.length} product names:`,
+    productNames
+  );
+
+  // Return up to 'count' product names
+  return productNames.slice(0, count);
+}
+
 export function specificGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
   const router = Router();
 
@@ -545,75 +656,111 @@ export function specificGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
         `[SpecificGiftIdeas] Generating products for: "${generalIdea.idea_text}"`
       );
 
-      // Step 1: Search for products using the general idea text
-      const searchResults = await searchProductOrchestrator(
+      // NEW STEP 1: Extract specific product names from the general gift idea
+      const productNames = await extractProductNamesFromIdea(
         generalIdea.idea_text,
-        CONFIG.searchProviders,
-        exa,
-        openai,
-        parallelClient
+        count,
+        parallelClient,
+        openai
       );
 
-      console.log(
-        `[SpecificGiftIdeas] Search orchestrator returned ${searchResults.length} provider result(s)`
-      );
-      searchResults.forEach((result, idx) => {
-        console.log(
-          `[SpecificGiftIdeas] Provider ${idx + 1} (${result.source}): ${
-            result.results.length
-          } results`
-        );
-      });
-
-      // Combine all search results
-      const allResults: SearchResult[] = [];
-      searchResults.forEach((result) => {
-        allResults.push(...result.results);
-      });
-
-      console.log(
-        `[SpecificGiftIdeas] Combined total: ${allResults.length} search results`
-      );
-
-      if (allResults.length === 0) {
+      if (productNames.length === 0) {
         console.error(
-          `[SpecificGiftIdeas] No products found for "${generalIdea.idea_text}"`
+          `[SpecificGiftIdeas] No product names extracted for "${generalIdea.idea_text}"`
         );
         return res.status(404).json({
           success: false,
           error: "No products found",
-          message: `Could not find any products for "${generalIdea.idea_text}"`,
+          message: `Could not extract any product names from "${generalIdea.idea_text}"`,
         });
       }
 
-      // Step 2: Use LLM to select the best purchase URLs (top N based on count)
-      const topN = Math.min(count, allResults.length);
-      const searchResultsForLLM = allResults.map((result, index) => ({
+      console.log(
+        `[SpecificGiftIdeas] Extracted ${productNames.length} product names`
+      );
+
+      // NEW STEP 2: For each product name, search for purchase URLs
+      // We'll search for 1-2 URLs per product to ensure we get the best match
+      const allProductUrlSearches = await Promise.all(
+        productNames.map(async (productName) => {
+          console.log(
+            `[SpecificGiftIdeas] Searching for purchase URLs for: "${productName}"`
+          );
+          const searchResults = await searchProductOrchestrator(
+            productName,
+            CONFIG.searchProviders,
+            exa,
+            openai,
+            parallelClient
+          );
+
+          // Combine results from all providers
+          const allResults: SearchResult[] = [];
+          searchResults.forEach((result) => {
+            allResults.push(...result.results);
+          });
+
+          return {
+            productName,
+            searchResults: allResults,
+          };
+        })
+      );
+
+      // Combine all search results with their product names
+      const allSearchResults: Array<SearchResult & { productName: string }> = [];
+      allProductUrlSearches.forEach(({ productName, searchResults }) => {
+        searchResults.forEach((result) => {
+          allSearchResults.push({ ...result, productName });
+        });
+      });
+
+      console.log(
+        `[SpecificGiftIdeas] Total search results across all products: ${allSearchResults.length}`
+      );
+
+      if (allSearchResults.length === 0) {
+        console.error(
+          `[SpecificGiftIdeas] No purchase URLs found for products`
+        );
+        return res.status(404).json({
+          success: false,
+          error: "No purchase URLs found",
+          message: "Could not find purchase URLs for the extracted products",
+        });
+      }
+
+      // NEW STEP 3: Use LLM to select the best purchase URLs (filter to e-commerce only)
+      const searchResultsForLLM = allSearchResults.map((result, index) => ({
         index: index + 1,
+        productName: result.productName,
         title: result.title,
         url: result.url,
       }));
 
-      const llmPrompt = `You are helping to identify the best URLs where a user can PURCHASE products online.
+      const topN = Math.min(count, allSearchResults.length);
+      const llmPrompt = `You are helping to identify the best URLs where a user can PURCHASE specific products online.
 
-Product category: "${generalIdea.idea_text}"
+Original gift idea: "${generalIdea.idea_text}"
 
-Here are ${allResults.length} search results:
+Here are ${allSearchResults.length} search results for specific products:
 ${JSON.stringify(searchResultsForLLM, null, 2)}
 
-Your task: Select the ${topN} BEST URLs where someone can actually purchase products in this category. Look for:
+Your task: Select the ${topN} BEST URLs where someone can actually purchase these products. Look for:
 - Direct product pages on e-commerce sites (Amazon, BestBuy, Target, Walmart, etc.)
 - Official manufacturer stores
 - Reputable online retailers
 - Favor .com links over international domains
+- Try to select diverse products (different URLs for different product names)
 
 AVOID:
 - Review sites
 - Comparison sites
 - News articles
 - General information pages
+- Wholesale/bulk sites
 
-Respond with ONLY a JSON array of the index numbers (e.g., [1, 5, 8, 12]). Select exactly ${topN} items.`;
+Respond with ONLY a JSON object with an "indices" key containing an array of index numbers (e.g., {"indices": [1, 5, 8, 12]}). Select exactly ${topN} items.`;
 
       const llmResponse = await openai.chat.completions.create({
         model: "chatgpt-4o-latest",
@@ -621,7 +768,7 @@ Respond with ONLY a JSON array of the index numbers (e.g., [1, 5, 8, 12]). Selec
           {
             role: "system",
             content:
-              "You are an expert at identifying e-commerce purchase URLs. Respond only with a JSON array of numbers.",
+              "You are an expert at identifying e-commerce purchase URLs. Respond only with valid JSON.",
           },
           {
             role: "user",
@@ -640,21 +787,24 @@ Respond with ONLY a JSON array of the index numbers (e.g., [1, 5, 8, 12]). Selec
       let selectedIndices: number[];
       try {
         const parsed = JSON.parse(llmContent);
-        selectedIndices = Array.isArray(parsed)
-          ? parsed
-          : parsed.indices || parsed.selected || [];
+        selectedIndices = parsed.indices || parsed.selected || [];
       } catch (parseError) {
         console.error("Error parsing LLM response:", parseError);
         // Fallback: use first N results
         selectedIndices = Array.from({ length: topN }, (_, i) => i + 1);
       }
 
-      // Step 3: Extract metadata for selected URLs
+      // Get the selected URLs
       const selectedUrls = selectedIndices
-        .filter((idx) => idx >= 1 && idx <= allResults.length)
+        .filter((idx) => idx >= 1 && idx <= allSearchResults.length)
         .slice(0, topN)
-        .map((idx) => allResults[idx - 1].url);
+        .map((idx) => allSearchResults[idx - 1].url);
 
+      console.log(
+        `[SpecificGiftIdeas] Selected ${selectedUrls.length} URLs for metadata extraction`
+      );
+
+      // STEP 4: Extract metadata for selected URLs
       console.log(
         `[SpecificGiftIdeas] Extracting metadata for ${selectedUrls.length} products...`
       );
