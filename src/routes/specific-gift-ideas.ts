@@ -227,7 +227,7 @@ class ApifyAmazonMetadataService {
 
     // Build image URLs array with primary image first, then additional images
     const imageUrls: string[] = [];
-    
+
     // Add primary/thumbnail image first
     if (item.thumbnailImage) {
       imageUrls.push(String(item.thumbnailImage));
@@ -236,7 +236,7 @@ class ApifyAmazonMetadataService {
     } else if (item.imageUrl) {
       imageUrls.push(String(item.imageUrl));
     }
-    
+
     // Add high-resolution images
     if (Array.isArray(item.highResolutionImages)) {
       imageUrls.push(...item.highResolutionImages.map(String));
@@ -316,10 +316,17 @@ class ParallelWebMetadataService {
           items: {
             type: "string" as const,
           },
-          description: "Array of product image URLs, with the primary/best image first",
+          description:
+            "Array of product image URLs, with the primary/best image first",
         },
       },
-      required: ["title", "description", "price_amount", "price_currency", "image_urls"],
+      required: [
+        "title",
+        "description",
+        "price_amount",
+        "price_currency",
+        "image_urls",
+      ],
       additionalProperties: false,
     };
 
@@ -334,7 +341,7 @@ class ParallelWebMetadataService {
 
     const taskRun = await this.client.taskRun.create({
       input: { product_url: url },
-      processor: "pro",
+      processor: "lite",
       task_spec: {
         input_schema: {
           type: "json",
@@ -373,9 +380,10 @@ class ParallelWebMetadataService {
       price: {
         amount: output.price_amount || null,
         currency: output.price_currency || null,
-        formatted: output.price_amount && output.price_currency
-          ? `${output.price_currency} ${output.price_amount.toFixed(2)}`
-          : null,
+        formatted:
+          output.price_amount && output.price_currency
+            ? `${output.price_currency} ${output.price_amount.toFixed(2)}`
+            : null,
       },
       imageUrls: output.image_urls || [],
       description: output.description || "",
@@ -395,7 +403,9 @@ async function searchProductOrchestrator(
   const services: { [key: string]: any } = {
     [SearchProvider.EXA]: new ExaSearchService(exa),
     ...(parallelClient && {
-      [SearchProvider.PARALLEL_WEB]: new ParallelWebSearchService(parallelClient),
+      [SearchProvider.PARALLEL_WEB]: new ParallelWebSearchService(
+        parallelClient
+      ),
     }),
   };
 
@@ -549,7 +559,9 @@ async function extractProductNamesFromIdea(
   });
 
   console.log(
-    `[ProductNameExtraction] Search returned ${search.results?.length || 0} results`
+    `[ProductNameExtraction] Search returned ${
+      search.results?.length || 0
+    } results`
   );
 
   if (!search.results || search.results.length === 0) {
@@ -560,12 +572,14 @@ async function extractProductNamesFromIdea(
   }
 
   // Prepare search results for LLM
-  const searchResultsForLLM = search.results.map((result: any, index: number) => ({
-    index: index + 1,
-    title: result.title,
-    url: result.url,
-    excerpts: result.excerpts || [],
-  }));
+  const searchResultsForLLM = search.results.map(
+    (result: any, index: number) => ({
+      index: index + 1,
+      title: result.title,
+      url: result.url,
+      excerpts: result.excerpts || [],
+    })
+  );
 
   // Use LLM to extract specific product names
   const llmPrompt = `You are helping to extract specific, real product names from search results.
@@ -653,7 +667,8 @@ async function processProductGeneration(
   }
 ): Promise<void> {
   try {
-    const { user_id, person_id, event_id, general_gift_idea_id, count } = params;
+    const { user_id, person_id, event_id, general_gift_idea_id, count } =
+      params;
     const { supabase, exa, openai, apifyToken, parallelClient } = clients;
 
     // Update job to in_progress
@@ -737,7 +752,9 @@ async function processProductGeneration(
     );
 
     if (allSearchResults.length === 0) {
-      throw new Error("Could not find purchase URLs for the extracted products");
+      throw new Error(
+        "Could not find purchase URLs for the extracted products"
+      );
     }
 
     // STEP 3: Use LLM to select the best purchase URLs
@@ -819,8 +836,13 @@ Respond with ONLY a JSON object with an "indices" key containing an array of ind
       `[Job ${jobId}] Extracting metadata for ${selectedUrls.length} products...`
     );
 
-    const metadataPromises = selectedUrls.map(async (url) => {
+    const metadataPromises = selectedUrls.map(async (url, index) => {
       try {
+        console.log(
+          `[Job ${jobId}] [${index + 1}/${
+            selectedUrls.length
+          }] Starting metadata extraction for: ${url}`
+        );
         const metadataResults = await extractMetadataOrchestrator(
           url,
           CONFIG.metadataProviders,
@@ -829,15 +851,38 @@ Respond with ONLY a JSON object with an "indices" key containing an array of ind
           parallelClient,
           CONFIG
         );
+        console.log(
+          `[Job ${jobId}] [${index + 1}/${
+            selectedUrls.length
+          }] ✅ Metadata extracted for: ${url}`
+        );
         return metadataResults[0];
       } catch (error) {
-        console.error(`[Job ${jobId}] Failed to extract metadata for ${url}:`, error);
+        console.error(
+          `[Job ${jobId}] [${index + 1}/${
+            selectedUrls.length
+          }] ❌ Failed to extract metadata for ${url}:`,
+          error
+        );
         return null;
       }
     });
 
+    console.log(
+      `[Job ${jobId}] Waiting for all metadata extractions to complete...`
+    );
     const metadataResults = await Promise.all(metadataPromises);
     const validMetadata = metadataResults.filter((m) => m !== null);
+
+    console.log(
+      `[Job ${jobId}] Metadata extraction complete. Valid: ${
+        validMetadata.length
+      }, Failed: ${metadataResults.length - validMetadata.length}`
+    );
+
+    if (validMetadata.length === 0) {
+      throw new Error("Failed to extract metadata for any products");
+    }
 
     // STEP 5: Store in database
     const specificGiftsToInsert = validMetadata.map((metaResult) => {
@@ -857,17 +902,30 @@ Respond with ONLY a JSON object with an "indices" key containing an array of ind
       };
     });
 
+    console.log(
+      `[Job ${jobId}] Attempting to insert ${specificGiftsToInsert.length} products into database...`
+    );
+    console.log(
+      `[Job ${jobId}] Sample product:`,
+      JSON.stringify(specificGiftsToInsert[0], null, 2)
+    );
+
     const { data: insertedGifts, error: insertError } = await supabase
       .from("specific_gift_ideas")
       .insert(specificGiftsToInsert)
       .select();
 
     if (insertError) {
-      throw new Error(`Failed to save specific gift ideas: ${insertError.message}`);
+      console.error(`[Job ${jobId}] Database insert error:`, insertError);
+      throw new Error(
+        `Failed to save specific gift ideas: ${insertError.message}`
+      );
     }
 
     console.log(
-      `[Job ${jobId}] Successfully generated ${insertedGifts?.length || 0} specific gift ideas`
+      `[Job ${jobId}] ✅ Successfully inserted ${
+        insertedGifts?.length || 0
+      } specific gift ideas into database`
     );
 
     // Update job to completed with results
@@ -880,11 +938,16 @@ Respond with ONLY a JSON object with an "indices" key containing an array of ind
       },
     });
   } catch (error) {
-    console.error(`[Job ${jobId}] Error generating specific gift ideas:`, error);
+    console.error(
+      `[Job ${jobId}] Error generating specific gift ideas:`,
+      error
+    );
     jobTracker.updateJob(jobId, {
       status: "failed",
       error:
-        error instanceof Error ? error.message : "Failed to generate specific gift ideas",
+        error instanceof Error
+          ? error.message
+          : "Failed to generate specific gift ideas",
     });
   }
 }
