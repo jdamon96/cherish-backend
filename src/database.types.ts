@@ -411,6 +411,7 @@ export type Database = {
           updated_at: string | null
           url: string | null
           user_id: string
+          viewed: boolean
         }
         Insert: {
           created_at?: string | null
@@ -427,6 +428,7 @@ export type Database = {
           updated_at?: string | null
           url?: string | null
           user_id: string
+          viewed?: boolean
         }
         Update: {
           created_at?: string | null
@@ -443,6 +445,7 @@ export type Database = {
           updated_at?: string | null
           url?: string | null
           user_id?: string
+          viewed?: boolean
         }
         Relationships: [
           {
