@@ -1562,5 +1562,64 @@ export function specificGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
     }
   });
 
+  /**
+   * POST /api/specific-gift-ideas/mark-viewed
+   * Bulk mark all products for a general gift idea as viewed
+   */
+  router.post("/mark-viewed", async (req, res) => {
+    try {
+      const { user_id, general_gift_idea_id } = req.body;
+
+      // Validate required parameters
+      if (!user_id || !general_gift_idea_id) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing required parameters",
+          message: "user_id and general_gift_idea_id are required",
+        });
+      }
+
+      // Update all products for this general gift idea to viewed=true
+      const { data, error } = await supabase
+        .from("specific_gift_ideas")
+        .update({ viewed: true })
+        .eq("general_gift_idea_id", general_gift_idea_id)
+        .eq("user_id", user_id)
+        .select();
+
+      if (error) {
+        console.error("Error marking products as viewed:", error);
+        return res.status(500).json({
+          success: false,
+          error: "Database error",
+          message: "Failed to mark products as viewed",
+        });
+      }
+
+      const count = data?.length || 0;
+      console.log(
+        `✅ Marked ${count} products as viewed for general idea ${general_gift_idea_id}`
+      );
+
+      return res.json({
+        success: true,
+        data: {
+          count,
+          general_gift_idea_id,
+        },
+      });
+    } catch (error) {
+      console.error("Error marking products as viewed:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Internal server error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Failed to mark products as viewed",
+      });
+    }
+  });
+
   return router;
 }

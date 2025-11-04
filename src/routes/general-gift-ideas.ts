@@ -939,5 +939,98 @@ Generate all ${count} refined ideas in this format.`;
     }
   });
 
+  /**
+   * GET /api/general-gift-ideas/unreviewed-counts
+   * Get unreviewed product counts for all general gift ideas for a person/event
+   * This endpoint fetches all data in bulk and computes counts efficiently on the backend
+   */
+  router.get("/unreviewed-counts", async (req, res) => {
+    try {
+      const { user_id, person_id, event_id } = req.query;
+
+      // Validate required parameters
+      if (!user_id || !person_id) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing required parameters",
+          message: "user_id and person_id are required",
+        });
+      }
+
+      // Fetch all general gift ideas for this person/event
+      let generalIdeasQuery = supabase
+        .from("general_gift_ideas")
+        .select("id")
+        .eq("user_id", user_id as string)
+        .eq("person_id", person_id as string);
+      
+      if (event_id) {
+        generalIdeasQuery = generalIdeasQuery.eq("event_id", event_id as string);
+      }
+
+      const { data: generalIdeas, error: generalError } = await generalIdeasQuery;
+
+      if (generalError) {
+        return res.status(500).json({
+          success: false,
+          error: "Database error",
+          message: "Failed to fetch general gift ideas",
+        });
+      }
+
+      if (!generalIdeas || generalIdeas.length === 0) {
+        return res.json({
+          success: true,
+          data: { counts: {} },
+        });
+      }
+
+      // Fetch all specific gift ideas for these general ideas, counting unseen ones
+      const generalIdeaIds = generalIdeas.map((idea) => idea.id);
+      const { data: specificGifts, error: specificError } = await supabase
+        .from("specific_gift_ideas")
+        .select("id, general_gift_idea_id, viewed")
+        .in("general_gift_idea_id", generalIdeaIds);
+
+      if (specificError) {
+        return res.status(500).json({
+          success: false,
+          error: "Database error",
+          message: "Failed to fetch specific gift ideas",
+        });
+      }
+
+      // Count unseen products (viewed=false) for each general idea
+      const counts: Record<string, number> = {};
+      
+      for (const generalIdea of generalIdeas) {
+        const relatedGifts = (specificGifts || []).filter(
+          (gift) => gift.general_gift_idea_id === generalIdea.id
+        );
+        
+        const unseenCount = relatedGifts.filter(
+          (gift) => !gift.viewed
+        ).length;
+        
+        counts[generalIdea.id] = unseenCount;
+      }
+
+      return res.json({
+        success: true,
+        data: { counts },
+      });
+    } catch (error) {
+      console.error("Error fetching unreviewed counts:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Internal server error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Failed to fetch unreviewed counts",
+      });
+    }
+  });
+
   return router;
 }
