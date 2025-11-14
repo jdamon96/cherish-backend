@@ -97,8 +97,8 @@ class ParallelWebSearchService {
       objective: `Find online stores selling ${productName}`,
       search_queries: [searchQuery, productName],
       max_results: CONFIG.maxSearchResults,
-      max_chars_per_result: 5000,
-      betas: ["search-extract-2025-10-10"],
+      max_chars_per_result: 10000,
+      //betas: ["search-extract-2025-10-10"],
     });
 
     console.log(
@@ -555,7 +555,7 @@ async function extractProductNamesFromIdea(
     ],
     max_results: 20, // Get more results to increase variety
     max_chars_per_result: 5000,
-    betas: ["search-extract-2025-10-10"],
+    //betas: ["search-extract-2025-10-10"],
   });
 
   console.log(
