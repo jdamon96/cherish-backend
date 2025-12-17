@@ -14,6 +14,83 @@ export type Database = {
   }
   public: {
     Tables: {
+      device_tokens: {
+        Row: {
+          created_at: string | null
+          device_token: string
+          id: string
+          is_sandbox: boolean
+          platform: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          device_token: string
+          id?: string
+          is_sandbox?: boolean
+          platform?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          device_token?: string
+          id?: string
+          is_sandbox?: boolean
+          platform?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      event_notification_reminders: {
+        Row: {
+          created_at: string | null
+          enabled: boolean
+          event_id: string
+          id: string
+          last_sent_at: string | null
+          next_scheduled_at: string | null
+          timing_unit: string
+          timing_value: number
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          enabled?: boolean
+          event_id: string
+          id?: string
+          last_sent_at?: string | null
+          next_scheduled_at?: string | null
+          timing_unit: string
+          timing_value: number
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          enabled?: boolean
+          event_id?: string
+          id?: string
+          last_sent_at?: string | null
+          next_scheduled_at?: string | null
+          timing_unit?: string
+          timing_value?: number
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_notification_reminders_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_preferences: {
         Row: {
           christmas_reminders: boolean | null
@@ -57,6 +134,81 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      event_type_notification_reminders: {
+        Row: {
+          created_at: string | null
+          enabled: boolean | null
+          event_type: string
+          id: string
+          last_sent_at: string | null
+          recurring_day: number
+          recurring_month: number
+          timing_unit: string
+          timing_value: number
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          enabled?: boolean | null
+          event_type: string
+          id?: string
+          last_sent_at?: string | null
+          recurring_day: number
+          recurring_month: number
+          timing_unit: string
+          timing_value: number
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          enabled?: boolean | null
+          event_type?: string
+          id?: string
+          last_sent_at?: string | null
+          recurring_day?: number
+          recurring_month?: number
+          timing_unit?: string
+          timing_value?: number
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      event_type_notification_settings: {
+        Row: {
+          created_at: string | null
+          event_type: string
+          id: string
+          management_mode: string
+          recurring_day: number
+          recurring_month: number
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          event_type: string
+          id?: string
+          management_mode?: string
+          recurring_day: number
+          recurring_month: number
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          event_type?: string
+          id?: string
+          management_mode?: string
+          recurring_day?: number
+          recurring_month?: number
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       events: {
         Row: {
@@ -265,6 +417,30 @@ export type Database = {
           },
         ]
       }
+      global_notification_preferences: {
+        Row: {
+          created_at: string | null
+          id: string
+          notifications_enabled: boolean
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          notifications_enabled?: boolean
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          notifications_enabled?: boolean
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       interests: {
         Row: {
           created_at: string | null
@@ -296,6 +472,38 @@ export type Database = {
             columns: ["person_id"]
             isOneToOne: false
             referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notification_send_attempts: {
+        Row: {
+          attempted_at: string
+          error_message: string | null
+          id: string
+          reminder_id: string
+          status: string
+        }
+        Insert: {
+          attempted_at?: string
+          error_message?: string | null
+          id?: string
+          reminder_id: string
+          status: string
+        }
+        Update: {
+          attempted_at?: string
+          error_message?: string | null
+          id?: string
+          reminder_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_send_attempts_reminder_id_fkey"
+            columns: ["reminder_id"]
+            isOneToOne: false
+            referencedRelation: "event_notification_reminders"
             referencedColumns: ["id"]
           },
         ]

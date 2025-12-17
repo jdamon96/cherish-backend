@@ -85,7 +85,7 @@ function generateAPNSToken(): string {
   };
 
   // Sign the token
-  cachedToken = jwt.sign(payload, privateKey, {
+  const token = jwt.sign(payload, privateKey, {
     algorithm: "ES256",
     header: {
       alg: "ES256",
@@ -93,11 +93,14 @@ function generateAPNSToken(): string {
     },
   });
 
+  // Cache the token
+  cachedToken = token;
+
   // Set expiry to 50 minutes from now
   tokenExpiry = now + 3000;
 
   console.log("🔐 [APNS] Generated new JWT token");
-  return cachedToken;
+  return token;
 }
 
 // MARK: - HTTP/2 Client
