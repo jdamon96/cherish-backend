@@ -30,18 +30,18 @@ export function generalGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
 
   /**
    * POST /api/general-gift-ideas/generate
-   * Generate initial set of general gift ideas for a person + event
+   * Generate initial set of general gift ideas for a person (person-scoped, not event-scoped)
    */
   router.post("/generate", async (req, res) => {
     try {
-      const { user_id, person_id, event_id, count = 10 } = req.body;
+      const { user_id, person_id, count = 10 } = req.body;
 
-      // Validate required parameters
-      if (!user_id || !person_id || !event_id) {
+      // Validate required parameters (event_id no longer required)
+      if (!user_id || !person_id) {
         return res.status(400).json({
           success: false,
           error: "Missing required parameters",
-          message: "user_id, person_id, and event_id are required",
+          message: "user_id and person_id are required",
         });
       }
 
@@ -58,22 +58,6 @@ export function generalGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
           success: false,
           error: "Person not found",
           message: "The specified person does not exist or access denied",
-        });
-      }
-
-      // Fetch event details
-      const { data: event, error: eventError } = await supabase
-        .from("events")
-        .select("*")
-        .eq("id", event_id)
-        .eq("user_id", user_id)
-        .single();
-
-      if (eventError || !event) {
-        return res.status(404).json({
-          success: false,
-          error: "Event not found",
-          message: "The specified event does not exist or access denied",
         });
       }
 
@@ -132,14 +116,6 @@ export function generalGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
           })) || [],
       };
 
-      const eventContext = {
-        name: event.name,
-        type: event.event_type,
-        date:
-          event.specific_date ||
-          `${event.recurring_month}/${event.recurring_day}`,
-      };
-
       // Build feedback context string
       let feedbackContext = "";
       if (relevantFeedback.length > 0) {
@@ -149,11 +125,10 @@ ${relevantFeedback
   .join("\n")}`;
       }
 
-      // Generate general gift ideas using OpenAI
-      const prompt = `You are a thoughtful gift recommendation assistant. Generate ${count} diverse and creative general gift idea categories for a person based on their profile and an upcoming event.
+      // Generate general gift ideas using OpenAI (person-scoped, not event-specific)
+      const prompt = `You are a thoughtful gift recommendation assistant. Generate ${count} diverse and creative general gift idea categories for a person based on their profile.
 
 Person: ${personContext.name}
-Event: ${eventContext.name} (${eventContext.type})
 
 Person Facts:
 ${personContext.facts
@@ -163,8 +138,8 @@ ${personContext.facts
 Generate exactly ${count} general gift idea categories that:
 1. Range from specific (e.g., "wireless workout headphones") to broader (e.g., "fitness gear")
 2. Are thoughtful and personalized based on the person's interests and facts
-3. Are appropriate for the event type
-4. Cover diverse categories and price ranges
+3. Cover diverse categories and price ranges
+4. Would make great gifts for any occasion
 5. Each idea should be 2-6 words
 
 IMPORTANT: Return a JSON object with an "ideas" array containing exactly ${count} gift ideas.
@@ -246,11 +221,11 @@ Generate all ${count} ideas in this format.`;
         );
       }
 
-      // Store ideas in database
+      // Store ideas in database (person-scoped, event_id is null)
       const ideasToInsert = ideas.map((idea) => ({
         user_id,
         person_id,
-        event_id,
+        event_id: null, // Gift ideas are now person-scoped, not event-scoped
         idea_text: idea.idea_text,
         reasoning: idea.reasoning,
         is_dismissed: false,
@@ -275,7 +250,6 @@ Generate all ${count} ideas in this format.`;
         data: {
           ideas: insertedIdeas,
           person: personContext,
-          event: eventContext,
         },
       });
     } catch (error) {
@@ -293,27 +267,23 @@ Generate all ${count} ideas in this format.`;
 
   /**
    * GET /api/general-gift-ideas
-   * Fetch stored general gift ideas for a person + event
+   * Fetch stored general gift ideas for a person (person-scoped)
    * Includes user feedback status for each idea
    */
   router.get("/", async (req, res) => {
     try {
-      const {
-        user_id,
-        person_id,
-        event_id,
-        include_dismissed = "false",
-      } = req.query;
+      const { user_id, person_id, include_dismissed = "false" } = req.query;
 
-      // Validate required parameters
-      if (!user_id || !person_id || !event_id) {
+      // Validate required parameters (event_id no longer required)
+      if (!user_id || !person_id) {
         return res.status(400).json({
           success: false,
           error: "Missing required parameters",
-          message: "user_id, person_id, and event_id query params are required",
+          message: "user_id and person_id query params are required",
         });
       }
 
+      // Query by person_id only (not event_id) - gift ideas are person-scoped
       let query = supabase
         .from("general_gift_ideas")
         .select(
@@ -330,7 +300,6 @@ Generate all ${count} ideas in this format.`;
         )
         .eq("user_id", user_id as string)
         .eq("person_id", person_id as string)
-        .eq("event_id", event_id as string)
         .eq("general_gift_idea_feedback.user_id", user_id as string)
         .order("created_at", { ascending: false });
 
@@ -385,28 +354,27 @@ Generate all ${count} ideas in this format.`;
 
   /**
    * POST /api/general-gift-ideas/refresh
-   * Generate NEW general gift ideas (excluding existing ones)
+   * Generate NEW general gift ideas (excluding existing ones) - person-scoped
    */
   router.post("/refresh", async (req, res) => {
     try {
-      const { user_id, person_id, event_id, count = 5 } = req.body;
+      const { user_id, person_id, count = 5 } = req.body;
 
-      // Validate required parameters
-      if (!user_id || !person_id || !event_id) {
+      // Validate required parameters (event_id no longer required)
+      if (!user_id || !person_id) {
         return res.status(400).json({
           success: false,
           error: "Missing required parameters",
-          message: "user_id, person_id, and event_id are required",
+          message: "user_id and person_id are required",
         });
       }
 
-      // Fetch existing ideas to exclude them
+      // Fetch existing ideas to exclude them (person-scoped)
       const { data: existingIdeas, error: existingError } = await supabase
         .from("general_gift_ideas")
         .select("idea_text")
         .eq("user_id", user_id)
-        .eq("person_id", person_id)
-        .eq("event_id", event_id);
+        .eq("person_id", person_id);
 
       if (existingError) {
         console.error("Error fetching existing ideas:", existingError);
@@ -432,22 +400,6 @@ Generate all ${count} ideas in this format.`;
           success: false,
           error: "Person not found",
           message: "The specified person does not exist or access denied",
-        });
-      }
-
-      // Fetch event details
-      const { data: event, error: eventError } = await supabase
-        .from("events")
-        .select("*")
-        .eq("id", event_id)
-        .eq("user_id", user_id)
-        .single();
-
-      if (eventError || !event) {
-        return res.status(404).json({
-          success: false,
-          error: "Event not found",
-          message: "The specified event does not exist or access denied",
         });
       }
 
@@ -501,14 +453,6 @@ Generate all ${count} ideas in this format.`;
           })) || [],
       };
 
-      const eventContext = {
-        name: event.name,
-        type: event.event_type,
-        date:
-          event.specific_date ||
-          `${event.recurring_month}/${event.recurring_day}`,
-      };
-
       // Build feedback context string
       let feedbackContext = "";
       if (relevantFeedback.length > 0) {
@@ -518,11 +462,10 @@ ${relevantFeedback
   .join("\n")}`;
       }
 
-      // Generate NEW gift ideas using OpenAI
-      const prompt = `You are a thoughtful gift recommendation assistant. Generate ${count} NEW and diverse general gift idea categories for a person based on their profile and an upcoming event.
+      // Generate NEW gift ideas using OpenAI (person-scoped, not event-specific)
+      const prompt = `You are a thoughtful gift recommendation assistant. Generate ${count} NEW and diverse general gift idea categories for a person based on their profile.
 
 Person: ${personContext.name}
-Event: ${eventContext.name} (${eventContext.type})
 
 Person Facts:
 ${personContext.facts
@@ -536,7 +479,7 @@ Generate exactly ${count} NEW general gift idea categories that:
 1. Are completely different from the existing suggestions above
 2. Range from specific (e.g., "wireless workout headphones") to broader (e.g., "fitness gear")
 3. Are thoughtful and personalized based on the person's interests and facts
-4. Are appropriate for the event type
+4. Would make great gifts for any occasion
 5. Cover diverse categories and price ranges
 6. Each idea should be 2-6 words
 
@@ -618,11 +561,11 @@ Generate all ${count} NEW ideas in this format.`;
         );
       }
 
-      // Store ideas in database
+      // Store ideas in database (person-scoped, event_id is null)
       const ideasToInsert = ideas.map((idea) => ({
         user_id,
         person_id,
-        event_id,
+        event_id: null, // Gift ideas are now person-scoped, not event-scoped
         idea_text: idea.idea_text,
         reasoning: idea.reasoning,
         is_dismissed: false,
@@ -647,7 +590,6 @@ Generate all ${count} NEW ideas in this format.`;
         data: {
           ideas: insertedIdeas,
           person: personContext,
-          event: eventContext,
         },
       });
     } catch (error) {
@@ -880,26 +822,20 @@ Generate all ${count} NEW ideas in this format.`;
           })) || [],
       };
 
-      const eventContext = {
-        name: originalIdea.events.name,
-        type: originalIdea.events.event_type,
-      };
-
-      // Generate refined ideas using OpenAI
+      // Generate refined ideas using OpenAI (person-scoped, not event-specific)
       const prompt = `You are a thoughtful gift recommendation assistant. The user has a gift idea but wants to refine it.
 
 Original Gift Idea: "${originalIdea.idea_text}"
 Refinement Request: "${refinement_direction}"
 
 Person: ${personContext.name}
-Event: ${eventContext.name} (${eventContext.type})
 
 Person Facts:
 ${personContext.facts.map((f: any) => `- ${f.title}: ${f.content}`).join("\n")}
 
 Generate exactly ${count} refined gift idea categories that:
 1. Take the original idea and adjust it based on the refinement request
-2. Stay relevant to the person's interests and the event
+2. Stay relevant to the person's interests
 3. Each idea should be 2-6 words
 
 IMPORTANT: Return a JSON object with an "ideas" array containing exactly ${count} refined gift ideas.
@@ -957,11 +893,11 @@ Generate all ${count} refined ideas in this format.`;
         throw new Error("No refined ideas generated");
       }
 
-      // Store refined ideas in database
+      // Store refined ideas in database (person-scoped, event_id is null)
       const ideasToInsert = ideas.map((idea) => ({
         user_id,
         person_id: originalIdea.person_id,
-        event_id: originalIdea.event_id,
+        event_id: null, // Gift ideas are now person-scoped, not event-scoped
         idea_text: idea.idea_text,
         reasoning: `Refined from "${originalIdea.idea_text}": ${idea.reasoning}`,
         is_dismissed: false,
@@ -1016,14 +952,14 @@ Generate all ${count} refined ideas in this format.`;
 
   /**
    * GET /api/general-gift-ideas/unreviewed-counts
-   * Get unreviewed product counts for all general gift ideas for a person/event
+   * Get unreviewed product counts for all general gift ideas for a person (person-scoped)
    * This endpoint fetches all data in bulk and computes counts efficiently on the backend
    */
   router.get("/unreviewed-counts", async (req, res) => {
     try {
-      const { user_id, person_id, event_id } = req.query;
+      const { user_id, person_id } = req.query;
 
-      // Validate required parameters
+      // Validate required parameters (event_id no longer used)
       if (!user_id || !person_id) {
         return res.status(400).json({
           success: false,
@@ -1032,22 +968,12 @@ Generate all ${count} refined ideas in this format.`;
         });
       }
 
-      // Fetch all general gift ideas for this person/event
-      let generalIdeasQuery = supabase
+      // Fetch all general gift ideas for this person (person-scoped)
+      const { data: generalIdeas, error: generalError } = await supabase
         .from("general_gift_ideas")
         .select("id")
         .eq("user_id", user_id as string)
         .eq("person_id", person_id as string);
-
-      if (event_id) {
-        generalIdeasQuery = generalIdeasQuery.eq(
-          "event_id",
-          event_id as string
-        );
-      }
-
-      const { data: generalIdeas, error: generalError } =
-        await generalIdeasQuery;
 
       if (generalError) {
         return res.status(500).json({

@@ -655,7 +655,6 @@ async function processProductGeneration(
   params: {
     user_id: string;
     person_id: string;
-    event_id: string;
     general_gift_idea_id: string;
     count: number;
   },
@@ -668,8 +667,7 @@ async function processProductGeneration(
   }
 ): Promise<void> {
   try {
-    const { user_id, person_id, event_id, general_gift_idea_id, count } =
-      params;
+    const { user_id, person_id, general_gift_idea_id, count } = params;
     const { supabase, exa, openai, apifyToken, parallelClient } = clients;
 
     // Update job to in_progress
@@ -885,13 +883,13 @@ Respond with ONLY a JSON object with an "indices" key containing an array of ind
       throw new Error("Failed to extract metadata for any products");
     }
 
-    // STEP 5: Store in database
+    // STEP 5: Store in database (person-scoped, event_id is null)
     const specificGiftsToInsert = validMetadata.map((metaResult) => {
       const meta = metaResult!.metadata;
       return {
         user_id,
         person_id,
-        event_id,
+        event_id: null, // Gift ideas are now person-scoped, not event-scoped
         general_gift_idea_id,
         name: meta.name,
         description: meta.description,
@@ -999,26 +997,19 @@ export function specificGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
 
   /**
    * POST /api/specific-gift-ideas/generate
-   * Generate specific purchasable products from a general gift idea
+   * Generate specific purchasable products from a general gift idea (person-scoped)
    * NOW ASYNC: Returns a job_id immediately and processes in the background
    */
   router.post("/generate", async (req, res) => {
     try {
-      const {
-        user_id,
-        person_id,
-        event_id,
-        general_gift_idea_id,
-        count = 10,
-      } = req.body;
+      const { user_id, person_id, general_gift_idea_id, count = 10 } = req.body;
 
-      // Validate required parameters
-      if (!user_id || !person_id || !event_id || !general_gift_idea_id) {
+      // Validate required parameters (event_id no longer required)
+      if (!user_id || !person_id || !general_gift_idea_id) {
         return res.status(400).json({
           success: false,
           error: "Missing required parameters",
-          message:
-            "user_id, person_id, event_id, and general_gift_idea_id are required",
+          message: "user_id, person_id, and general_gift_idea_id are required",
         });
       }
 
@@ -1057,7 +1048,7 @@ export function specificGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
       // Start background processing (don't await - fire and forget)
       processProductGeneration(
         jobId,
-        { user_id, person_id, event_id, general_gift_idea_id, count },
+        { user_id, person_id, general_gift_idea_id, count },
         { supabase, exa, openai, apifyToken: apifyApiToken, parallelClient }
       ).catch((error) => {
         // This should not happen as processProductGeneration handles its own errors
@@ -1236,7 +1227,7 @@ export function specificGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
 
   /**
    * POST /api/specific-gift-ideas/save
-   * Mark a specific gift as saved
+   * Mark a specific gift as saved (person-scoped)
    */
   router.post("/save", async (req, res) => {
     try {
@@ -1244,18 +1235,16 @@ export function specificGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
         user_id,
         specific_gift_idea_id,
         person_id,
-        event_id,
         general_gift_idea_id,
         interaction_notes,
       } = req.body;
 
-      // Validate required parameters
-      if (!user_id || !specific_gift_idea_id || !person_id || !event_id) {
+      // Validate required parameters (event_id no longer required)
+      if (!user_id || !specific_gift_idea_id || !person_id) {
         return res.status(400).json({
           success: false,
           error: "Missing required parameters",
-          message:
-            "user_id, specific_gift_idea_id, person_id, and event_id are required",
+          message: "user_id, specific_gift_idea_id, and person_id are required",
         });
       }
 
@@ -1274,14 +1263,14 @@ export function specificGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
         });
       }
 
-      // Create interaction record
+      // Create interaction record (person-scoped, event_id is null)
       const { data: interaction, error: interactionError } = await supabase
         .from("gift_idea_interactions")
         .insert({
           user_id,
           specific_gift_idea_id,
           person_id,
-          event_id,
+          event_id: null, // Gift ideas are now person-scoped, not event-scoped
           general_gift_idea_id: general_gift_idea_id || null,
           interaction_type: "saved",
           interaction_notes: interaction_notes || null,
@@ -1326,7 +1315,7 @@ export function specificGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
 
   /**
    * POST /api/specific-gift-ideas/pass
-   * Mark a specific gift as passed
+   * Mark a specific gift as passed (person-scoped)
    */
   router.post("/pass", async (req, res) => {
     try {
@@ -1334,18 +1323,16 @@ export function specificGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
         user_id,
         specific_gift_idea_id,
         person_id,
-        event_id,
         general_gift_idea_id,
         interaction_notes,
       } = req.body;
 
-      // Validate required parameters
-      if (!user_id || !specific_gift_idea_id || !person_id || !event_id) {
+      // Validate required parameters (event_id no longer required)
+      if (!user_id || !specific_gift_idea_id || !person_id) {
         return res.status(400).json({
           success: false,
           error: "Missing required parameters",
-          message:
-            "user_id, specific_gift_idea_id, person_id, and event_id are required",
+          message: "user_id, specific_gift_idea_id, and person_id are required",
         });
       }
 
@@ -1364,14 +1351,14 @@ export function specificGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
         });
       }
 
-      // Create interaction record
+      // Create interaction record (person-scoped, event_id is null)
       const { data: interaction, error: interactionError } = await supabase
         .from("gift_idea_interactions")
         .insert({
           user_id,
           specific_gift_idea_id,
           person_id,
-          event_id,
+          event_id: null, // Gift ideas are now person-scoped, not event-scoped
           general_gift_idea_id: general_gift_idea_id || null,
           interaction_type: "passed",
           interaction_notes: interaction_notes || null,
@@ -1416,13 +1403,13 @@ export function specificGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
 
   /**
    * GET /api/specific-gift-ideas/saved
-   * Fetch all saved specific gift ideas for a person + event
+   * Fetch all saved specific gift ideas for a person (person-scoped)
    */
   router.get("/saved", async (req, res) => {
     try {
-      const { user_id, person_id, event_id } = req.query;
+      const { user_id, person_id } = req.query;
 
-      // Validate required parameters
+      // Validate required parameters (event_id no longer used)
       if (!user_id || !person_id) {
         return res.status(400).json({
           success: false,
@@ -1431,145 +1418,46 @@ export function specificGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
         });
       }
 
-      // Handle different query modes
-      if (event_id && event_id !== "all") {
-        // Mode 1: Fetch gifts for specific event OR gifts with no event
-        const [eventGifts, noEventGifts] = await Promise.all([
-          supabase
-            .from("gift_idea_interactions")
-            .select(
-              `
-              *,
-              specific_gift_ideas (*),
-              events (
-                id,
-                name,
-                event_type,
-                recurring_month,
-                recurring_day,
-                specific_date
-              )
-            `
-            )
-            .eq("user_id", user_id as string)
-            .eq("person_id", person_id as string)
-            .eq("event_id", event_id as string)
-            .eq("interaction_type", "saved")
-            .order("created_at", { ascending: false }),
-          supabase
-            .from("gift_idea_interactions")
-            .select(
-              `
-              *,
-              specific_gift_ideas (*),
-              events (
-                id,
-                name,
-                event_type,
-                recurring_month,
-                recurring_day,
-                specific_date
-              )
-            `
-            )
-            .eq("user_id", user_id as string)
-            .eq("person_id", person_id as string)
-            .is("event_id", null)
-            .eq("interaction_type", "saved")
-            .order("created_at", { ascending: false }),
-        ]);
-
-        if (eventGifts.error) {
-          console.error("Error fetching event gifts:", eventGifts.error);
-          return res.status(500).json({
-            success: false,
-            error: "Database error",
-            message: "Failed to fetch saved gifts",
-          });
-        }
-
-        if (noEventGifts.error) {
-          console.error("Error fetching no-event gifts:", noEventGifts.error);
-          return res.status(500).json({
-            success: false,
-            error: "Database error",
-            message: "Failed to fetch saved gifts",
-          });
-        }
-
-        // Combine: event-specific gifts first, then no-event gifts
-        const allInteractions = [
-          ...(eventGifts.data || []),
-          ...(noEventGifts.data || []),
-        ];
-
-        const gifts = allInteractions
-          .map((interaction: any) => ({
-            ...interaction.specific_gift_ideas,
-            saved_for_event: interaction.events || null,
-            saved_at: interaction.created_at,
-          }))
-          .filter((gift: any) => gift.id !== undefined);
-
-        return res.json({
-          success: true,
-          data: {
-            gifts: gifts,
-            count: gifts.length,
-            event_specific_count: (eventGifts.data || []).length,
-            no_event_count: (noEventGifts.data || []).length,
-          },
-        });
-      } else {
-        // Mode 2: Fetch all gifts for the person across all events
-        const { data: interactions, error: interactionsError } = await supabase
-          .from("gift_idea_interactions")
-          .select(
-            `
-            *,
-            specific_gift_ideas (*),
-            events (
-              id,
-              name,
-              event_type,
-              recurring_month,
-              recurring_day,
-              specific_date
-            )
+      // Fetch all saved gifts for the person (person-scoped)
+      const { data: interactions, error: interactionsError } = await supabase
+        .from("gift_idea_interactions")
+        .select(
           `
-          )
-          .eq("user_id", user_id as string)
-          .eq("person_id", person_id as string)
-          .eq("interaction_type", "saved")
-          .order("created_at", { ascending: false });
+          *,
+          specific_gift_ideas (*)
+        `
+        )
+        .eq("user_id", user_id as string)
+        .eq("person_id", person_id as string)
+        .eq("interaction_type", "saved")
+        .order("created_at", { ascending: false });
 
-        if (interactionsError) {
-          console.error("Error fetching saved gifts:", interactionsError);
-          return res.status(500).json({
-            success: false,
-            error: "Database error",
-            message: "Failed to fetch saved gifts",
-          });
-        }
-
-        // Extract gift ideas with event metadata
-        const gifts =
-          interactions
-            ?.map((interaction: any) => ({
-              ...interaction.specific_gift_ideas,
-              saved_for_event: interaction.events || null,
-              saved_at: interaction.created_at,
-            }))
-            .filter((gift: any) => gift.id !== undefined) || [];
-
-        return res.json({
-          success: true,
-          data: {
-            gifts: gifts,
-            count: gifts.length,
-          },
+      if (interactionsError) {
+        console.error("Error fetching saved gifts:", interactionsError);
+        return res.status(500).json({
+          success: false,
+          error: "Database error",
+          message: "Failed to fetch saved gifts",
         });
       }
+
+      // Extract gift ideas
+      const gifts =
+        interactions
+          ?.map((interaction: any) => ({
+            ...interaction.specific_gift_ideas,
+            saved_at: interaction.created_at,
+            interaction_status: "saved",
+          }))
+          .filter((gift: any) => gift.id !== undefined) || [];
+
+      return res.json({
+        success: true,
+        data: {
+          gifts: gifts,
+          count: gifts.length,
+        },
+      });
     } catch (error) {
       console.error("Error in fetch saved gifts:", error);
       return res.status(500).json({
