@@ -10,6 +10,7 @@
 
 2. **Set up environment variables:**
    Create a `.env` file in the root directory with:
+
    ```env
    SUPABASE_URL=your_supabase_url
    SUPABASE_PROJECT_ID=your_project_id
@@ -18,6 +19,27 @@
    EXA_API_KEY=your_exa_api_key
    PORT=3000
    NODE_ENV=development
+
+   # APNS Push Notifications (Optional - for "Products Ready" notifications)
+   APNS_KEY_ID=your_apns_key_id
+   APNS_TEAM_ID=your_apple_team_id
+   APNS_BUNDLE_ID=your_app_bundle_id
+   APNS_KEY_BASE64=your_base64_encoded_p8_key
+   APNS_ENVIRONMENT=sandbox
+   ```
+
+   **APNS Configuration Details:**
+
+   - `APNS_KEY_ID`: The 10-character Key ID from Apple Developer Portal (Certificates, Identifiers & Profiles > Keys)
+   - `APNS_TEAM_ID`: Your Apple Developer Team ID (10 characters, found in Membership details)
+   - `APNS_BUNDLE_ID`: Your app's bundle identifier (e.g., `com.yourcompany.cherish`)
+   - `APNS_KEY_BASE64`: Your .p8 private key file content, base64 encoded
+   - `APNS_ENVIRONMENT`: Either `sandbox` (for development) or `production`
+
+   **To base64 encode your .p8 key:**
+
+   ```bash
+   base64 -i AuthKey_XXXXXXXXXX.p8 | tr -d '\n'
    ```
 
 ## Running the Server
@@ -349,6 +371,7 @@ Product not found:
 ### Product Endpoints Use Cases
 
 1. **Search for where to buy a gift idea:**
+
    - User receives gift recommendations
    - Search for each gift to find purchase locations
    - Display multiple purchase options to user

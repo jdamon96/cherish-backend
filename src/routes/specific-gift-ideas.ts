@@ -6,6 +6,7 @@ import { ApifyClient } from "apify-client";
 import Parallel from "parallel-web";
 import { Database } from "../config/supabase";
 import { jobTracker } from "../services/job-tracker";
+import { sendProductsReadyNotification } from "../services/apns";
 
 // Import types and orchestrators from product-search
 interface SearchResult {
@@ -937,6 +938,23 @@ Respond with ONLY a JSON object with an "indices" key containing an array of ind
         count: insertedGifts?.length || 0,
       },
     });
+
+    // Send push notification to user that products are ready
+    try {
+      await sendProductsReadyNotification(
+        supabase,
+        user_id,
+        general_gift_idea_id,
+        insertedGifts?.length || 0,
+        generalIdea.idea_text
+      );
+    } catch (notificationError) {
+      // Don't fail the job if notification fails
+      console.error(
+        `[Job ${jobId}] ⚠️ Failed to send push notification:`,
+        notificationError
+      );
+    }
   } catch (error) {
     console.error(
       `[Job ${jobId}] Error generating specific gift ideas:`,

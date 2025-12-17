@@ -93,6 +93,35 @@ export function generalGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
         });
       }
 
+      // Fetch past negative feedback to avoid similar ideas
+      const { data: pastFeedback, error: feedbackError } = await supabase
+        .from("general_gift_idea_feedback")
+        .select(
+          `
+          feedback_type,
+          feedback_text,
+          general_gift_ideas!inner (
+            idea_text,
+            person_id
+          )
+        `
+        )
+        .eq("user_id", user_id)
+        .in("feedback_type", ["not_relevant", "bad_idea", "dismissed"]);
+
+      if (feedbackError) {
+        console.error("Error fetching past feedback:", feedbackError);
+        // Continue without feedback - not critical
+      }
+
+      // Filter feedback to this person and format for prompt
+      const relevantFeedback = (pastFeedback || [])
+        .filter((fb: any) => fb.general_gift_ideas?.person_id === person_id)
+        .map((fb: any) => ({
+          idea: fb.general_gift_ideas?.idea_text,
+          reason: fb.feedback_text || fb.feedback_type,
+        }));
+
       // Build context for OpenAI
       const personContext = {
         name: person.name,
@@ -111,6 +140,15 @@ export function generalGiftIdeasRoutes(supabase: SupabaseClient<Database>) {
           `${event.recurring_month}/${event.recurring_day}`,
       };
 
+      // Build feedback context string
+      let feedbackContext = "";
+      if (relevantFeedback.length > 0) {
+        feedbackContext = `\n\nIMPORTANT - The user has previously declined these gift ideas with reasons. AVOID similar suggestions:
+${relevantFeedback
+  .map((fb: any) => `- "${fb.idea}" - reason: ${fb.reason}`)
+  .join("\n")}`;
+      }
+
       // Generate general gift ideas using OpenAI
       const prompt = `You are a thoughtful gift recommendation assistant. Generate ${count} diverse and creative general gift idea categories for a person based on their profile and an upcoming event.
 
@@ -118,7 +156,9 @@ Person: ${personContext.name}
 Event: ${eventContext.name} (${eventContext.type})
 
 Person Facts:
-${personContext.facts.map((f: any) => `- ${f.title}: ${f.content}`).join("\n")}
+${personContext.facts
+  .map((f: any) => `- ${f.title}: ${f.content}`)
+  .join("\n")}${feedbackContext}
 
 Generate exactly ${count} general gift idea categories that:
 1. Range from specific (e.g., "wireless workout headphones") to broader (e.g., "fitness gear")
@@ -427,6 +467,30 @@ Generate all ${count} ideas in this format.`;
         });
       }
 
+      // Fetch past negative feedback to avoid similar ideas
+      const { data: pastFeedback } = await supabase
+        .from("general_gift_idea_feedback")
+        .select(
+          `
+          feedback_type,
+          feedback_text,
+          general_gift_ideas!inner (
+            idea_text,
+            person_id
+          )
+        `
+        )
+        .eq("user_id", user_id)
+        .in("feedback_type", ["not_relevant", "bad_idea", "dismissed"]);
+
+      // Filter feedback to this person and format for prompt
+      const relevantFeedback = (pastFeedback || [])
+        .filter((fb: any) => fb.general_gift_ideas?.person_id === person_id)
+        .map((fb: any) => ({
+          idea: fb.general_gift_ideas?.idea_text,
+          reason: fb.feedback_text || fb.feedback_type,
+        }));
+
       // Build context for OpenAI
       const personContext = {
         name: person.name,
@@ -445,6 +509,15 @@ Generate all ${count} ideas in this format.`;
           `${event.recurring_month}/${event.recurring_day}`,
       };
 
+      // Build feedback context string
+      let feedbackContext = "";
+      if (relevantFeedback.length > 0) {
+        feedbackContext = `\n\nThe user has previously declined these gift ideas with reasons. AVOID similar suggestions:
+${relevantFeedback
+  .map((fb: any) => `- "${fb.idea}" - reason: ${fb.reason}`)
+  .join("\n")}`;
+      }
+
       // Generate NEW gift ideas using OpenAI
       const prompt = `You are a thoughtful gift recommendation assistant. Generate ${count} NEW and diverse general gift idea categories for a person based on their profile and an upcoming event.
 
@@ -452,7 +525,9 @@ Person: ${personContext.name}
 Event: ${eventContext.name} (${eventContext.type})
 
 Person Facts:
-${personContext.facts.map((f: any) => `- ${f.title}: ${f.content}`).join("\n")}
+${personContext.facts
+  .map((f: any) => `- ${f.title}: ${f.content}`)
+  .join("\n")}${feedbackContext}
 
 IMPORTANT: The following gift ideas have already been suggested. Generate DIFFERENT ideas:
 ${existingIdeaTexts.map((text) => `- ${text}`).join("\n")}
@@ -963,12 +1038,16 @@ Generate all ${count} refined ideas in this format.`;
         .select("id")
         .eq("user_id", user_id as string)
         .eq("person_id", person_id as string);
-      
+
       if (event_id) {
-        generalIdeasQuery = generalIdeasQuery.eq("event_id", event_id as string);
+        generalIdeasQuery = generalIdeasQuery.eq(
+          "event_id",
+          event_id as string
+        );
       }
 
-      const { data: generalIdeas, error: generalError } = await generalIdeasQuery;
+      const { data: generalIdeas, error: generalError } =
+        await generalIdeasQuery;
 
       if (generalError) {
         return res.status(500).json({
@@ -1002,16 +1081,14 @@ Generate all ${count} refined ideas in this format.`;
 
       // Count unseen products (viewed=false) for each general idea
       const counts: Record<string, number> = {};
-      
+
       for (const generalIdea of generalIdeas) {
         const relatedGifts = (specificGifts || []).filter(
           (gift) => gift.general_gift_idea_id === generalIdea.id
         );
-        
-        const unseenCount = relatedGifts.filter(
-          (gift) => !gift.viewed
-        ).length;
-        
+
+        const unseenCount = relatedGifts.filter((gift) => !gift.viewed).length;
+
         counts[generalIdea.id] = unseenCount;
       }
 
