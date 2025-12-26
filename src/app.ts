@@ -11,6 +11,7 @@ import { giftRecsRoutes } from "./routes/gift-recs";
 import { productSearchRoutes } from "./routes/product-search";
 import { generalGiftIdeasRoutes } from "./routes/general-gift-ideas";
 import { specificGiftIdeasRoutes } from "./routes/specific-gift-ideas";
+import { giftIdeaCreateRoutes } from "./routes/gift-idea-create";
 
 // Load environment variables
 require("dotenv").config();
@@ -52,6 +53,7 @@ app.use("/api/get-gift-recs", giftRecsRoutes(supabase));
 app.use("/api/product", productSearchRoutes());
 app.use("/api/general-gift-ideas", generalGiftIdeasRoutes(supabase));
 app.use("/api/specific-gift-ideas", specificGiftIdeasRoutes(supabase));
+app.use("/api/gift-ideas", giftIdeaCreateRoutes(supabase));
 
 // Error handling middleware
 app.use(
